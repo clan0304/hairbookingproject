@@ -37,8 +37,8 @@ export function Sidebar() {
       icon: Calendar,
     },
     {
-      href: '/admin/catalogue',
-      label: 'Catalogue',
+      href: '/admin/services',
+      label: 'Services',
       icon: Tag,
     },
     {

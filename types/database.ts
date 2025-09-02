@@ -69,3 +69,73 @@ export interface AvailabilitySlot {
   team_member_name?: string;
   shop_name?: string;
 }
+
+// Service-related types
+// ============================================
+export interface ServiceCategory {
+  id: string;
+  name: string;
+  description?: string | null;
+  color: string; // Hex color for calendar display
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Service {
+  id: string;
+  category_id: string;
+  name: string;
+  description?: string | null;
+  base_duration: number; // in minutes
+  base_price: number;
+  has_variants: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // Relations
+  category?: ServiceCategory;
+  variants?: ServiceVariant[];
+}
+
+export interface ServiceVariant {
+  id: string;
+  service_id: string;
+  name: string;
+  duration_modifier: number; // additional minutes (can be negative)
+  price_modifier: number; // additional price (can be negative)
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TeamMemberService {
+  id: string;
+  team_member_id: string;
+  service_id: string;
+  is_available: boolean;
+  price: number; // Actual price this team member charges
+  duration: number; // Actual duration for this team member (in minutes)
+  created_at: string;
+  updated_at: string;
+  // Relations
+  team_member?: TeamMember;
+  service?: Service;
+}
+
+// ============================================
+// Helper types for UI
+// ============================================
+export interface ServiceWithDetails extends Service {
+  category: ServiceCategory;
+  variants: ServiceVariant[];
+  team_members?: TeamMemberService[];
+}
+
+export interface TeamMemberServiceWithDetails extends TeamMemberService {
+  service: ServiceWithDetails;
+}
+
+export interface CategoryWithServices extends ServiceCategory {
+  services: ServiceWithDetails[];
+}
