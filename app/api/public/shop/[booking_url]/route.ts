@@ -1,20 +1,21 @@
 // app/api/public/shop/[booking_url]/route.ts
-// (New API route to get shop info by booking URL)
-// ============================================
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/client';
+import { createServerClient } from '@/lib/supabase/server';
 
-const supabase = createClient();
 export async function GET(
   req: Request,
-  { params }: { params: { booking_url: string } }
+  { params }: { params: Promise<{ booking_url: string }> }
 ) {
   try {
+    // Await params first
+    const { booking_url } = await params;
+    const supabase = createServerClient();
+
     // Get shop info by booking URL
     const { data, error } = await supabase
       .from('shops')
       .select('id, name, address, phone')
-      .eq('booking_url', params.booking_url)
+      .eq('booking_url', booking_url)
       .eq('is_active', true)
       .single();
 

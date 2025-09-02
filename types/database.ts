@@ -139,3 +139,66 @@ export interface TeamMemberServiceWithDetails extends TeamMemberService {
 export interface CategoryWithServices extends ServiceCategory {
   services: ServiceWithDetails[];
 }
+
+export type BookingStatus = 'confirmed' | 'completed' | 'cancelled' | 'no_show';
+
+export interface Booking {
+  id: string;
+  booking_number: string;
+  client_id: string;
+  team_member_id: string;
+  shop_id: string;
+  service_id: string;
+  variant_id?: string | null;
+  starts_at: string;
+  ends_at: string;
+  duration: number;
+  price: number;
+  status: BookingStatus;
+  booking_note?: string | null;
+  created_at: string;
+  updated_at: string;
+  cancelled_at?: string | null;
+  cancelled_reason?: string | null;
+  completed_at?: string | null;
+  no_show_at?: string | null;
+}
+
+export interface BookingWithLocalTimes extends Booking {
+  starts_at_local: string;
+  ends_at_local: string;
+  booking_date_local: string;
+  start_time_local: string;
+  end_time_local: string;
+  shop_timezone: string;
+  client_first_name: string;
+  client_last_name: string;
+  team_member_first_name: string;
+  team_member_last_name: string;
+  service_name: string;
+  category_color: string;
+  variant_name?: string | null;
+}
+
+// Booking flow types
+export interface BookingFlowState {
+  shopId: string;
+  shopName: string;
+  shopAddress: string;
+  serviceId: string | null;
+  serviceName: string | null;
+  servicePrice: number | null;
+  serviceDuration: number | null;
+  categoryColor: string | null;
+  variantId: string | null;
+  variantName: string | null;
+  teamMemberId: string | null;
+  teamMemberName: string | null;
+  teamMemberPrice: number | null;
+  selectedDate: Date | null;
+  selectedTime: string | null;
+  clientName: string;
+  clientEmail: string;
+  clientPhone: string;
+  clientNote?: string;
+}

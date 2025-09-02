@@ -1,12 +1,6 @@
 // app/api/public/services/[serviceId]/providers/route.ts
-// ============================================
-// Get all team members who provide a specific service with their custom pricing
-// Used in booking flow: After selecting a service, show available providers
-// ============================================
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/client';
-
-const supabase = createClient();
+import { createServerClient } from '@/lib/supabase/server';
 
 // Define types
 interface ServiceCategory {
@@ -101,9 +95,13 @@ interface AnyProfessionalOption {
 
 export async function GET(
   req: Request,
-  { params }: { params: { serviceId: string } }
+  { params }: { params: Promise<{ serviceId: string }> }
 ) {
   try {
+    // Await params first
+    const { serviceId } = await params;
+    const supabase = createServerClient();
+
     const { searchParams } = new URL(req.url);
     const shopId = searchParams.get('shop_id');
     const includeVariants = searchParams.get('include_variants') === 'true';
@@ -118,7 +116,7 @@ export async function GET(
         variants:service_variants(*)
       `
       )
-      .eq('id', params.serviceId)
+      .eq('id', serviceId)
       .eq('is_active', true)
       .single();
 
@@ -146,7 +144,7 @@ export async function GET(
         )
       `
       )
-      .eq('service_id', params.serviceId)
+      .eq('service_id', serviceId)
       .eq('is_available', true);
 
     if (providersError) {

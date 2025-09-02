@@ -1,5 +1,4 @@
 // app/api/admin/shops/[id]/route.ts
-// ============================================
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
@@ -15,9 +14,10 @@ interface UpdateShopData {
 
 export async function PUT(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params; // Await params first
     const { userId } = await auth();
 
     if (!userId) {
@@ -53,7 +53,7 @@ export async function PUT(
       const { data: oldShop } = await supabaseAdmin
         .from('shops')
         .select('image')
-        .eq('id', params.id)
+        .eq('id', id)
         .single();
 
       if (oldShop?.image) {
@@ -95,7 +95,7 @@ export async function PUT(
     const { data, error } = await supabaseAdmin
       .from('shops')
       .update(updateData)
-      .eq('id', params.id)
+      .eq('id', id)
       .select()
       .single();
 
@@ -116,9 +116,10 @@ export async function PUT(
 
 export async function DELETE(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params; // Await params first
     const { userId } = await auth();
 
     if (!userId) {
@@ -140,7 +141,7 @@ export async function DELETE(
     const { data: shop } = await supabaseAdmin
       .from('shops')
       .select('image')
-      .eq('id', params.id)
+      .eq('id', id)
       .single();
 
     if (shop?.image) {
@@ -159,10 +160,7 @@ export async function DELETE(
       }
     }
 
-    const { error } = await supabaseAdmin
-      .from('shops')
-      .delete()
-      .eq('id', params.id);
+    const { error } = await supabaseAdmin.from('shops').delete().eq('id', id);
 
     if (error) {
       console.error('Delete error:', error);

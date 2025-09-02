@@ -1,14 +1,14 @@
 // app/api/admin/services/[id]/variants/route.ts
-// ============================================
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 
 export async function POST(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params; // Await params first
     const { userId } = await auth();
 
     if (!userId) {
@@ -34,13 +34,13 @@ export async function POST(
       await supabaseAdmin
         .from('service_variants')
         .update({ is_default: false })
-        .eq('service_id', params.id);
+        .eq('service_id', id);
     }
 
     const { data, error } = await supabaseAdmin
       .from('service_variants')
       .insert({
-        service_id: params.id,
+        service_id: id,
         name,
         duration_modifier: duration_modifier || 0,
         price_modifier: price_modifier || 0,

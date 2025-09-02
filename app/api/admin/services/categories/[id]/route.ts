@@ -1,14 +1,14 @@
 // app/api/admin/services/categories/[id]/route.ts
-// ============================================
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 
 export async function PUT(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params; // Await params first
     const { userId } = await auth();
 
     if (!userId) {
@@ -38,7 +38,7 @@ export async function PUT(
         is_active,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', params.id)
+      .eq('id', id)
       .select()
       .single();
 
@@ -58,9 +58,10 @@ export async function PUT(
 
 export async function DELETE(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params; // Await params first
     const { userId } = await auth();
 
     if (!userId) {
@@ -82,7 +83,7 @@ export async function DELETE(
     const { error } = await supabaseAdmin
       .from('service_categories')
       .delete()
-      .eq('id', params.id);
+      .eq('id', id);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });

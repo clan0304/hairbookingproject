@@ -1,6 +1,4 @@
-// ============================================
 // app/api/admin/team/[id]/route.ts
-// ============================================
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
@@ -19,9 +17,11 @@ interface UpdateTeamMemberData {
 
 export async function PUT(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Await params first
+    const { id } = await params;
     const { userId } = await auth();
 
     if (!userId) {
@@ -60,7 +60,7 @@ export async function PUT(
       const { data: oldMember } = await supabaseAdmin
         .from('team_members')
         .select('photo')
-        .eq('id', params.id)
+        .eq('id', id)
         .single();
 
       if (oldMember?.photo) {
@@ -106,7 +106,7 @@ export async function PUT(
     const { data, error } = await supabaseAdmin
       .from('team_members')
       .update(updateData)
-      .eq('id', params.id)
+      .eq('id', id)
       .select()
       .single();
 
@@ -133,9 +133,11 @@ export async function PUT(
 
 export async function DELETE(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Await params first
+    const { id } = await params;
     const { userId } = await auth();
 
     if (!userId) {
@@ -157,7 +159,7 @@ export async function DELETE(
     const { data: member } = await supabaseAdmin
       .from('team_members')
       .select('photo')
-      .eq('id', params.id)
+      .eq('id', id)
       .single();
 
     if (member?.photo) {
@@ -177,7 +179,7 @@ export async function DELETE(
     const { error } = await supabaseAdmin
       .from('team_members')
       .delete()
-      .eq('id', params.id);
+      .eq('id', id);
 
     if (error) {
       console.error('Delete error:', error);

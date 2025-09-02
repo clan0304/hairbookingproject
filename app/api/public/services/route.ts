@@ -3,9 +3,9 @@
 // Modified to support shop-specific services with minimum pricing
 // ============================================
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/client';
+import { createServerClient } from '@/lib/supabase/server';
 
-const supabase = createClient();
+const supabase = createServerClient();
 
 // Define types
 interface ServiceCategory {

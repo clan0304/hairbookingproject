@@ -1,14 +1,14 @@
 // app/api/admin/services/[id]/variants/[variantId]/route.ts
-// ============================================
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 
 export async function PUT(
   req: Request,
-  { params }: { params: { id: string; variantId: string } }
+  { params }: { params: Promise<{ id: string; variantId: string }> }
 ) {
   try {
+    const { id, variantId } = await params; // Await params first
     const { userId } = await auth();
 
     if (!userId) {
@@ -34,8 +34,8 @@ export async function PUT(
       await supabaseAdmin
         .from('service_variants')
         .update({ is_default: false })
-        .eq('service_id', params.id)
-        .neq('id', params.variantId);
+        .eq('service_id', id)
+        .neq('id', variantId);
     }
 
     const { data, error } = await supabaseAdmin
@@ -47,7 +47,7 @@ export async function PUT(
         is_default,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', params.variantId)
+      .eq('id', variantId)
       .select()
       .single();
 
@@ -67,9 +67,10 @@ export async function PUT(
 
 export async function DELETE(
   req: Request,
-  { params }: { params: { id: string; variantId: string } }
+  { params }: { params: Promise<{ id: string; variantId: string }> }
 ) {
   try {
+    const { variantId } = await params; // Await params first (though id is not used here)
     const { userId } = await auth();
 
     if (!userId) {
@@ -90,7 +91,7 @@ export async function DELETE(
     const { error } = await supabaseAdmin
       .from('service_variants')
       .delete()
-      .eq('id', params.variantId);
+      .eq('id', variantId);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });

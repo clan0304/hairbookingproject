@@ -4,13 +4,10 @@
 // Considers team member, service duration, and existing bookings
 // ============================================
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createServerClient } from '@/lib/supabase/server';
 import { addMinutes, format, parse, isAfter, isBefore } from 'date-fns';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+const supabase = createServerClient();
 
 // Define types for better type safety
 interface AvailabilitySlot {

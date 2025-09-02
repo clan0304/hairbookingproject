@@ -1,7 +1,5 @@
 // lib/supabase/server.ts
 
-'use server';
-
 import { createClient } from '@supabase/supabase-js';
 
 // This is a simplified server client since we're using client components

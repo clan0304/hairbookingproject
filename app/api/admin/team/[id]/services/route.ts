@@ -1,5 +1,4 @@
 // app/api/admin/team/[id]/services/route.ts
-// ============================================
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
@@ -8,9 +7,9 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params;
-
   try {
+    // Await params first
+    const { id } = await params;
     const { userId } = await auth();
 
     if (!userId) {
@@ -50,9 +49,9 @@ export async function PUT(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params;
-
   try {
+    // Await params first
+    const { id } = await params;
     const { userId } = await auth();
 
     if (!userId) {
