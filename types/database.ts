@@ -150,8 +150,9 @@ export interface Booking {
   shop_id: string;
   service_id: string;
   variant_id?: string | null;
-  starts_at: string;
-  ends_at: string;
+  booking_date: string;
+  start_time: string;
+  end_time: string;
   duration: number;
   price: number;
   status: BookingStatus;
@@ -172,7 +173,9 @@ export interface BookingWithLocalTimes extends Booking {
   end_time_local: string;
   shop_timezone: string;
   client_first_name: string;
-  client_last_name: string;
+  client_last_name?: string | null;
+  client_email?: string | null;
+  client_phone?: string | null;
   team_member_first_name: string;
   team_member_last_name: string;
   service_name: string;
@@ -180,7 +183,7 @@ export interface BookingWithLocalTimes extends Booking {
   variant_name?: string | null;
 }
 
-// Booking flow types
+// Booking flow types - Updated for authenticated users
 export interface BookingFlowState {
   shopId: string;
   shopName: string;
@@ -197,8 +200,10 @@ export interface BookingFlowState {
   teamMemberPrice: number | null;
   selectedDate: Date | null;
   selectedTime: string | null;
+  // Client details (auto-filled from clients table)
+  clientId?: string; // Added: Client ID from database
   clientName: string;
   clientEmail: string;
   clientPhone: string;
-  clientNote?: string;
+  clientNote?: string; // Only special requests remain optional
 }

@@ -196,7 +196,7 @@ export function TeamMemberSelection({
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <div
-              key={i}
+              key={`skeleton-member-${i}`}
               className="h-48 bg-gray-100 rounded-lg animate-pulse"
             />
           ))}
@@ -250,7 +250,7 @@ export function TeamMemberSelection({
 
           return (
             <Card
-              key={member.id}
+              key={`team-member-${member.id}`}
               onClick={() => handleSelect(member)}
               className={`p-4 cursor-pointer transition-all text-center relative ${
                 isSelected

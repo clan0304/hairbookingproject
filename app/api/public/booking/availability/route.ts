@@ -1,7 +1,6 @@
 // app/api/public/booking/availability/route.ts
 // ============================================
-// Get available time slots for booking
-// Considers team member, service duration, and existing bookings
+// Get available time slots with temporary reservation checking
 // ============================================
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase/server';
@@ -30,6 +29,16 @@ interface Booking {
   status: string;
 }
 
+interface Reservation {
+  id: string;
+  team_member_id: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  session_id: string;
+  expires_at: string;
+}
+
 interface TimeSlot {
   time: string;
   display_time: string;
@@ -41,34 +50,52 @@ interface TimeSlot {
   slot_id: string;
 }
 
-interface TeamMemberService {
-  team_member_id: string;
-  duration?: number;
-}
-
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const teamMemberId = searchParams.get('team_member_id');
     const serviceId = searchParams.get('service_id');
     const date = searchParams.get('date'); // Format: YYYY-MM-DD
+    const shopId = searchParams.get('shop_id');
+    const currentSessionId = searchParams.get('session_id'); // Current user's session
 
-    if (!date) {
-      return NextResponse.json({ error: 'Date is required' }, { status: 400 });
+    if (!date || !shopId) {
+      return NextResponse.json(
+        { error: 'Date and Shop ID are required' },
+        { status: 400 }
+      );
     }
 
-    // If "any" professional selected, get all available team members for this service
+    // Clean up expired reservations first
+    await supabase.rpc('cleanup_expired_reservations');
+
+    // Get team member IDs (existing logic)
     let teamMemberIds: string[] = [];
     if (teamMemberId === 'any' && serviceId) {
+      // ... existing logic to get team members
       const { data: availableProviders } = await supabase
         .from('team_member_services')
         .select('team_member_id')
         .eq('service_id', serviceId)
         .eq('is_available', true);
 
-      teamMemberIds =
-        availableProviders?.map((p: TeamMemberService) => p.team_member_id) ||
-        [];
+      const serviceProviderIds =
+        availableProviders?.map((p: any) => p.team_member_id) || [];
+
+      if (serviceProviderIds.length > 0) {
+        const { data: shopAvailability } = await supabase
+          .from('availability_slots')
+          .select('team_member_id')
+          .in('team_member_id', serviceProviderIds)
+          .eq('shop_id', shopId)
+          .eq('date', date)
+          .eq('is_available', true);
+
+        const uniqueIds = new Set(
+          shopAvailability?.map((slot: any) => slot.team_member_id) || []
+        );
+        teamMemberIds = Array.from(uniqueIds);
+      }
     } else if (teamMemberId && teamMemberId !== 'any') {
       teamMemberIds = [teamMemberId];
     }
@@ -78,75 +105,73 @@ export async function GET(req: Request) {
         data: {
           available_slots: [],
           date: date,
-          message: 'No providers available for this service',
+          shop_id: shopId,
+          message: 'No providers available',
         },
       });
     }
 
-    // Get service duration (from specific team member or base)
-    let serviceDuration = 30; // default
-    if (serviceId && teamMemberId && teamMemberId !== 'any') {
-      const { data: teamService } = await supabase
-        .from('team_member_services')
-        .select('duration')
-        .eq('team_member_id', teamMemberId)
-        .eq('service_id', serviceId)
-        .single();
-
-      if (teamService && typeof teamService.duration === 'number') {
-        serviceDuration = teamService.duration;
-      }
-    } else if (serviceId) {
+    // Get service duration
+    let serviceDuration = 30;
+    if (serviceId) {
       const { data: service } = await supabase
         .from('services')
         .select('base_duration')
         .eq('id', serviceId)
         .single();
 
-      if (service && typeof service.base_duration === 'number') {
+      if (service?.base_duration) {
         serviceDuration = service.base_duration;
       }
     }
 
-    // Get availability slots for the team members on this date
+    // Get availability slots
     const { data: availabilitySlots, error: availabilityError } = await supabase
       .from('availability_slots')
       .select('*')
       .in('team_member_id', teamMemberIds)
+      .eq('shop_id', shopId)
       .eq('date', date)
       .eq('is_available', true);
 
-    if (availabilityError) {
-      console.error('Error fetching availability slots:', availabilityError);
-      return NextResponse.json(
-        { error: 'Failed to fetch availability' },
-        { status: 500 }
-      );
-    }
-
-    if (!availabilitySlots || availabilitySlots.length === 0) {
+    if (
+      availabilityError ||
+      !availabilitySlots ||
+      availabilitySlots.length === 0
+    ) {
       return NextResponse.json({
         data: {
           available_slots: [],
           date: date,
-          message: 'No availability on this date',
+          shop_id: shopId,
+          message: 'No availability at this location on this date',
         },
       });
     }
 
-    // Get existing bookings for these team members on this date
+    // Get existing bookings
     const { data: existingBookings } = await supabase
       .from('bookings')
       .select('*')
       .in('team_member_id', teamMemberIds)
       .eq('booking_date', date)
-      .in('status', ['confirmed', 'pending']);
+      .in('status', ['confirmed', 'completed']);
+
+    // Get active reservations (not expired and not from current session)
+    const { data: activeReservations } = await supabase
+      .from('booking_reservations')
+      .select('*')
+      .in('team_member_id', teamMemberIds)
+      .eq('date', date)
+      .gt('expires_at', new Date().toISOString())
+      .neq('session_id', currentSessionId || 'none');
 
     const bookings: Booking[] = existingBookings || [];
+    const reservations: Reservation[] = activeReservations || [];
 
     // Generate time slots
     const timeSlots: TimeSlot[] = [];
-    const slotInterval = 30; // 30-minute intervals
+    const slotInterval = 30;
 
     for (const slot of availabilitySlots as AvailabilitySlot[]) {
       const startTime = parse(slot.start_time, 'HH:mm:ss', new Date(date));
@@ -185,12 +210,35 @@ export async function GET(req: Request) {
           );
         });
 
-        if (!isBooked) {
-          // For "any" professional, we need to track which team member is available
+        // Check if this slot is reserved by another user
+        const isReserved = reservations.some((reservation: Reservation) => {
+          if (reservation.team_member_id !== slot.team_member_id) return false;
+
+          const reservationStart = parse(
+            reservation.start_time,
+            'HH:mm:ss',
+            new Date(date)
+          );
+          const reservationEnd = parse(
+            reservation.end_time,
+            'HH:mm:ss',
+            new Date(date)
+          );
+
+          return (
+            (isAfter(currentSlot, reservationStart) &&
+              isBefore(currentSlot, reservationEnd)) ||
+            (isAfter(slotEndTime, reservationStart) &&
+              isBefore(slotEndTime, reservationEnd)) ||
+            format(currentSlot, 'HH:mm') === format(reservationStart, 'HH:mm')
+          );
+        });
+
+        if (!isBooked && !isReserved) {
           const availableTeamMember =
             teamMemberId === 'any'
               ? slot.team_member_id
-              : teamMemberId || slot.team_member_id; // Fallback to slot's team member if teamMemberId is null
+              : teamMemberId || slot.team_member_id;
 
           timeSlots.push({
             time: format(currentSlot, 'HH:mm'),
@@ -208,7 +256,7 @@ export async function GET(req: Request) {
       }
     }
 
-    // Remove duplicate time slots (when multiple team members are available at the same time)
+    // Remove duplicate time slots for "any" professional
     const uniqueSlots: TimeSlot[] =
       teamMemberId === 'any'
         ? timeSlots.reduce((acc: TimeSlot[], slot: TimeSlot) => {
@@ -222,7 +270,6 @@ export async function GET(req: Request) {
           }, [])
         : timeSlots;
 
-    // Sort slots by time
     uniqueSlots.sort((a: TimeSlot, b: TimeSlot) =>
       a.time.localeCompare(b.time)
     );
@@ -230,6 +277,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       data: {
         date: date,
+        shop_id: shopId,
         service_duration: serviceDuration,
         available_slots: uniqueSlots,
         total_slots: uniqueSlots.length,

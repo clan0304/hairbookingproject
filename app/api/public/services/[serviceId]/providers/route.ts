@@ -1,4 +1,7 @@
 // app/api/public/services/[serviceId]/providers/route.ts
+// ============================================
+// Get providers for a service - now filters by shop availability
+// ============================================
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase/server';
 
@@ -105,6 +108,14 @@ export async function GET(
     const { searchParams } = new URL(req.url);
     const shopId = searchParams.get('shop_id');
     const includeVariants = searchParams.get('include_variants') === 'true';
+    const selectedDate = searchParams.get('date'); // Optional: filter by specific date
+
+    if (!shopId) {
+      return NextResponse.json(
+        { error: 'Shop ID is required' },
+        { status: 400 }
+      );
+    }
 
     // Get the service details first
     const { data: service, error: serviceError } = await supabase
@@ -156,13 +167,44 @@ export async function GET(
 
     const typedProviders = providers as TeamMemberServiceProvider[];
 
+    // Filter providers to only include those who work at this shop
+    // We need to check if they have any availability slots at this shop
+    const filteredProviders: TeamMemberServiceProvider[] = [];
+
+    for (const provider of typedProviders) {
+      if (!provider.team_member || !provider.team_member.is_visible) {
+        continue;
+      }
+
+      // Check if this team member has any availability at this shop
+      let query = supabase
+        .from('availability_slots')
+        .select('id')
+        .eq('team_member_id', provider.team_member_id)
+        .eq('shop_id', shopId)
+        .eq('is_available', true)
+        .limit(1);
+
+      // If a specific date is provided, check availability for that date
+      if (selectedDate) {
+        query = query.eq('date', selectedDate);
+      } else {
+        // Check for any future availability
+        const today = new Date().toISOString().split('T')[0];
+        query = query.gte('date', today);
+      }
+
+      const { data: availabilityCheck } = await query;
+
+      // Only include this provider if they have availability at this shop
+      if (availabilityCheck && availabilityCheck.length > 0) {
+        filteredProviders.push(provider);
+      }
+    }
+
     // Format the response
     const formattedProviders: (BaseProvider | ProviderWithVariants)[] =
-      typedProviders
-        ?.filter((p: TeamMemberServiceProvider) => {
-          // Ensure team member exists and is visible
-          return p.team_member && p.team_member.is_visible;
-        })
+      filteredProviders
         ?.map((provider: TeamMemberServiceProvider) => {
           const teamMember = provider.team_member!; // We know it exists from filter above
 
@@ -216,20 +258,29 @@ export async function GET(
         ? Math.min(...formattedProviders.map((p) => p.price))
         : typedService.base_price;
 
-    // Add "Any Professional" option at the beginning
-    const anyProfessionalOption: AnyProfessionalOption = {
-      id: 'any',
-      name: 'Any professional',
-      first_name: 'Any',
-      last_name: 'professional',
-      role: 'for maximum availability',
-      photo: null,
-      price: minPrice,
-      duration: typedService.base_duration,
-      is_any: true,
-    };
+    // Only add "Any Professional" if there are providers available at this shop
+    const allProviders: (
+      | AnyProfessionalOption
+      | BaseProvider
+      | ProviderWithVariants
+    )[] = [];
 
-    const allProviders = [anyProfessionalOption, ...formattedProviders];
+    if (formattedProviders.length > 0) {
+      const anyProfessionalOption: AnyProfessionalOption = {
+        id: 'any',
+        name: 'Any professional',
+        first_name: 'Any',
+        last_name: 'professional',
+        role: 'for maximum availability',
+        photo: null,
+        price: minPrice,
+        duration: typedService.base_duration,
+        is_any: true,
+      };
+      allProviders.push(anyProfessionalOption);
+    }
+
+    allProviders.push(...formattedProviders);
 
     return NextResponse.json({
       data: {

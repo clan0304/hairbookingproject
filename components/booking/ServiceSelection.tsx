@@ -18,34 +18,33 @@ interface ServiceCategory {
   name: string;
   color: string;
   description?: string | null;
-  services: ServiceItem[];
+  is_active: boolean;
 }
 
 interface ServiceItem {
   id: string;
+  category_id: string;
   name: string;
   description?: string | null;
-  duration: number;
-  min_price: number;
-  base_price: number;
   base_duration: number;
+  base_price: number;
   has_variants: boolean;
+  is_active: boolean;
+  category?: ServiceCategory;
   variants?: ServiceVariant[] | null;
-  provider_count: number;
-  is_available: boolean;
+  min_price: number;
+  has_providers: boolean;
 }
 
-interface ShopServicesResponse {
-  shop: {
-    id: string;
-    name: string;
-    address: string;
-    phone?: string | null;
-    image?: string | null;
-    booking_url: string;
-  };
-  categories: ServiceCategory[];
-  total_services: number;
+interface CategoryGroup {
+  category: ServiceCategory | null;
+  services: ServiceItem[];
+}
+
+interface ServicesResponse {
+  services: ServiceItem[];
+  categories: CategoryGroup[];
+  shop_id: string;
 }
 
 export function ServiceSelection({
@@ -53,7 +52,7 @@ export function ServiceSelection({
   bookingState,
   onUpdate,
 }: ServiceSelectionProps) {
-  const [categories, setCategories] = useState<ServiceCategory[]>([]);
+  const [categories, setCategories] = useState<CategoryGroup[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('featured');
   const [loading, setLoading] = useState(true);
   const [expandedServices, setExpandedServices] = useState<Set<string>>(
@@ -64,13 +63,14 @@ export function ServiceSelection({
   const fetchServices = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/public/shop/${shopId}/services`);
+      // Use the general services endpoint
+      const response = await fetch(`/api/public/services?shop_id=${shopId}`);
 
       if (!response.ok) {
         throw new Error('Failed to fetch services');
       }
 
-      const data: { data: ShopServicesResponse } = await response.json();
+      const data: { data: ServicesResponse } = await response.json();
 
       if (data?.data?.categories) {
         setCategories(data.data.categories);
@@ -81,11 +81,11 @@ export function ServiceSelection({
     } finally {
       setLoading(false);
     }
-  }, [shopId]); // shopId is a dependency of fetchServices
+  }, [shopId]);
 
   useEffect(() => {
     fetchServices();
-  }, [fetchServices]); // Now we include fetchServices as a dependency
+  }, [fetchServices]);
 
   const handleServiceSelect = (service: ServiceItem, categoryColor: string) => {
     onUpdate({
@@ -93,7 +93,7 @@ export function ServiceSelection({
       serviceId: service.id,
       serviceName: service.name,
       servicePrice: service.base_price,
-      serviceDuration: service.base_duration || service.duration,
+      serviceDuration: service.base_duration,
       categoryColor: categoryColor || '#6B7280',
       variantId: null,
       variantName: null,
@@ -110,9 +110,7 @@ export function ServiceSelection({
       serviceId: service.id,
       serviceName: service.name,
       servicePrice: service.base_price + (variant.price_modifier || 0),
-      serviceDuration:
-        (service.base_duration || service.duration) +
-        (variant.duration_modifier || 0),
+      serviceDuration: service.base_duration + (variant.duration_modifier || 0),
       categoryColor: categoryColor || '#6B7280',
       variantId: variant.id,
       variantName: variant.name,
@@ -134,16 +132,11 @@ export function ServiceSelection({
   // Get filtered services based on selected category
   const getFilteredServices = (): ServiceItem[] => {
     if (selectedCategory === 'featured') {
-      // Get featured services from the "featured" category or first 5 services
-      const featuredCategory = categories.find((cat) => cat.id === 'featured');
-      if (featuredCategory) {
-        return featuredCategory.services;
-      }
-      // Fallback: get first 5 available services from all categories
+      // Get first 5 available services from all categories
       const allServices: ServiceItem[] = [];
-      categories.forEach((cat) => {
-        cat.services.forEach((service) => {
-          if (service.is_available && allServices.length < 5) {
+      categories.forEach((categoryGroup) => {
+        categoryGroup.services.forEach((service) => {
+          if (service.is_active && allServices.length < 5) {
             allServices.push(service);
           }
         });
@@ -152,16 +145,20 @@ export function ServiceSelection({
     }
 
     // Find services in the selected category
-    const category = categories.find((cat) => cat.name === selectedCategory);
-    return category?.services || [];
+    const categoryGroup = categories.find(
+      (cat) => cat.category?.name === selectedCategory
+    );
+    return categoryGroup?.services || [];
   };
 
   const filteredServices = getFilteredServices();
 
-  // Get the category color for a service
-  const getCategoryColor = (categoryName: string): string => {
-    const category = categories.find((cat) => cat.name === categoryName);
-    return category?.color || '#6B7280';
+  // Get the category color for selected category
+  const getCategoryColor = (): string => {
+    const categoryGroup = categories.find(
+      (cat) => cat.category?.name === selectedCategory
+    );
+    return categoryGroup?.category?.color || '#6B7280';
   };
 
   if (loading) {
@@ -171,13 +168,16 @@ export function ServiceSelection({
         <div className="flex gap-2">
           {[1, 2, 3].map((i) => (
             <div
-              key={i}
+              key={`skeleton-tab-${i}`}
               className="h-10 w-24 bg-gray-100 rounded-full animate-pulse"
             />
           ))}
         </div>
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-24 bg-gray-100 rounded-lg animate-pulse" />
+          <div
+            key={`skeleton-service-${i}`}
+            className="h-24 bg-gray-100 rounded-lg animate-pulse"
+          />
         ))}
       </div>
     );
@@ -198,6 +198,7 @@ export function ServiceSelection({
       {/* Category Tabs */}
       <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
         <button
+          key="featured-tab"
           onClick={() => setSelectedCategory('featured')}
           className={`px-4 py-2 rounded-full whitespace-nowrap transition-all ${
             selectedCategory === 'featured'
@@ -208,18 +209,21 @@ export function ServiceSelection({
           Featured
         </button>
         {categories
-          .filter((cat) => cat.id !== 'featured' && cat.services.length > 0)
-          .map((category) => (
+          .filter(
+            (cat) =>
+              cat.category && cat.category.is_active && cat.services.length > 0
+          )
+          .map((categoryGroup) => (
             <button
-              key={category.id}
-              onClick={() => setSelectedCategory(category.name)}
+              key={`category-tab-${categoryGroup.category!.id}`}
+              onClick={() => setSelectedCategory(categoryGroup.category!.name)}
               className={`px-4 py-2 rounded-full whitespace-nowrap transition-all ${
-                selectedCategory === category.name
+                selectedCategory === categoryGroup.category!.name
                   ? 'bg-gray-900 text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              {category.name}
+              {categoryGroup.category!.name}
             </button>
           ))}
       </div>
@@ -235,13 +239,11 @@ export function ServiceSelection({
             const isSelected =
               bookingState.serviceId === service.id && !bookingState.variantId;
             const isExpanded = expandedServices.has(service.id);
-            const categoryColor = getCategoryColor(
-              selectedCategory === 'featured' ? 'Hair Cut' : selectedCategory
-            );
+            const categoryColor = getCategoryColor();
 
             return (
               <Card
-                key={service.id}
+                key={`service-${service.id}`}
                 className={`p-4 cursor-pointer transition-all ${
                   isSelected
                     ? 'ring-2 ring-purple-600 bg-purple-50'
@@ -267,16 +269,15 @@ export function ServiceSelection({
                       <div className="flex items-center gap-4 mt-2">
                         <span className="text-sm text-gray-500 flex items-center">
                           <Clock size={14} className="mr-1" />
-                          {service.duration || service.base_duration} mins
+                          {service.base_duration} mins
                         </span>
                         <span className="font-semibold">
                           from ${service.min_price || service.base_price}
                         </span>
                       </div>
-                      {service.provider_count > 0 && (
+                      {service.has_providers && (
                         <p className="text-xs text-gray-500 mt-1">
-                          {service.provider_count} professional
-                          {service.provider_count > 1 ? 's' : ''} available
+                          Professionals available
                         </p>
                       )}
                     </div>
@@ -318,12 +319,12 @@ export function ServiceSelection({
                       const variantPrice =
                         service.base_price + (variant.price_modifier || 0);
                       const variantDuration =
-                        (service.base_duration || service.duration) +
+                        service.base_duration +
                         (variant.duration_modifier || 0);
 
                       return (
                         <div
-                          key={variant.id}
+                          key={`variant-${service.id}-${variant.id}`}
                           onClick={() =>
                             handleVariantSelect(service, variant, categoryColor)
                           }

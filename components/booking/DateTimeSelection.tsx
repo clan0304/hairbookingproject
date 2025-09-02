@@ -18,7 +18,12 @@ interface DateTimeSelectionProps {
 interface TimeSlot {
   time: string;
   display_time: string;
+  end_time: string;
+  display_end_time: string;
+  team_member_id: string;
+  shop_id: string;
   is_available: boolean;
+  slot_id: string;
 }
 
 export function DateTimeSelection({
@@ -138,9 +143,9 @@ export function DateTimeSelection({
         </div>
       </div>
 
-      {/* Horizontal Date Selector - Matches your UI */}
+      {/* Horizontal Date Selector */}
       <div className="grid grid-cols-7 gap-2">
-        {weekDates.map((date) => {
+        {weekDates.map((date, index) => {
           const isSelected =
             selectedDate?.toDateString() === date.toDateString();
           const isToday = new Date().toDateString() === date.toDateString();
@@ -150,7 +155,7 @@ export function DateTimeSelection({
 
           return (
             <button
-              key={date.toISOString()}
+              key={`date-${format(date, 'yyyy-MM-dd')}-${index}`}
               onClick={() => !isPast && handleDateSelect(date)}
               disabled={isPast}
               className={`
@@ -165,7 +170,7 @@ export function DateTimeSelection({
                 ${isToday && !isSelected ? 'ring-2 ring-purple-200' : ''}
               `}
             >
-              {/* Day number - large and bold like in your UI */}
+              {/* Day number - large and bold */}
               <div
                 className={`text-2xl font-bold mb-1 ${
                   isSelected
@@ -210,20 +215,20 @@ export function DateTimeSelection({
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {[...Array(6)].map((_, i) => (
               <div
-                key={i}
+                key={`skeleton-slot-${i}`}
                 className="h-14 bg-gray-100 rounded-lg animate-pulse"
               />
             ))}
           </div>
         ) : timeSlots.length > 0 ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {timeSlots.map((slot, index) => {
+            {timeSlots.map((slot) => {
               const isSelected =
                 bookingState.selectedTime === slot.display_time;
 
               return (
                 <button
-                  key={`${slot.time}-${index}`}
+                  key={`time-slot-${slot.slot_id}`}
                   onClick={() => slot.is_available && handleTimeSelect(slot)}
                   disabled={!slot.is_available}
                   className={`
