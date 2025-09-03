@@ -22,7 +22,6 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  Edit,
   Trash2,
 } from 'lucide-react';
 import type { BookingWithLocalTimes } from '@/types/database';
@@ -48,6 +47,7 @@ export function BookingDetailsModal({
     try {
       const supabase = createClient();
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const updateData: any = {
         status: newStatus,
         updated_at: new Date().toISOString(),
