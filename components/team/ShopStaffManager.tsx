@@ -37,7 +37,6 @@ export function ShopStaffManager({
     if (isOpen) {
       fetchTeamMembers();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, shopId]);
 
   async function fetchTeamMembers() {

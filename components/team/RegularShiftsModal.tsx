@@ -1,9 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // components/team/RegularShiftsModal.tsx
 'use client';
 
 import { useState } from 'react';
-import { X, Plus, Trash2, Info } from 'lucide-react';
-import { format, addWeeks, addMonths } from 'date-fns';
+import { X, Trash2, Info } from 'lucide-react';
+import { format, addMonths } from 'date-fns';
 import type { TeamMember } from '@/types/database';
 
 interface TimeSlot {
@@ -53,7 +54,7 @@ export function RegularShiftsModal({
   onClose,
   teamMember,
   shopId,
-  shopName,
+
   onSave,
 }: RegularShiftsModalProps) {
   const [scheduleType, setScheduleType] = useState('everyWeek');
@@ -201,6 +202,7 @@ export function RegularShiftsModal({
       start_date: startDate,
       end_date: calculatedEndDate,
       schedules: Object.entries(daySchedules)
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         .filter(([_, schedule]) => schedule.enabled)
         .map(([day, schedule]) => ({
           day_of_week: day.toLowerCase(),
@@ -226,7 +228,7 @@ export function RegularShiftsModal({
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b">
           <h2 className="text-xl font-semibold">
-            Set {teamMember.first_name}'s regular shifts
+            Set {teamMember.first_name}&apos;s regular shifts
           </h2>
           <button
             onClick={onClose}
@@ -237,188 +239,175 @@ export function RegularShiftsModal({
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {loading ? (
-            <div className="flex items-center justify-center h-64">
-              <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
-              <span className="ml-2">Loading schedule...</span>
-            </div>
-          ) : (
-            <div className="flex">
-              {/* Left Panel - Settings */}
-              <div className="w-1/3 p-6 border-r">
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Schedule type
-                    </label>
-                    <select
-                      value={scheduleType}
-                      onChange={(e) => setScheduleType(e.target.value)}
-                      className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    >
-                      <option value="everyWeek">Every week</option>
-                      <option value="everyTwoWeeks">Every two weeks</option>
-                      <option value="everyMonth">Every month</option>
-                    </select>
-                  </div>
+          <div className="flex">
+            {/* Left Panel - Settings */}
+            <div className="w-1/3 p-6 border-r">
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Schedule type
+                  </label>
+                  <select
+                    value={scheduleType}
+                    onChange={(e) => setScheduleType(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="everyWeek">Every week</option>
+                    <option value="everyTwoWeeks">Every two weeks</option>
+                    <option value="everyMonth">Every month</option>
+                  </select>
+                </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Start date
-                    </label>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Start date
+                  </label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Ends
+                  </label>
+                  <select
+                    value={endOption}
+                    onChange={(e) => setEndOption(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="never">Never</option>
+                    <option value="date">On date</option>
+                    <option value="after">After occurrences</option>
+                  </select>
+
+                  {endOption === 'date' && (
                     <input
                       type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="w-full mt-2 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      min={startDate}
                     />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Ends
-                    </label>
-                    <select
-                      value={endOption}
-                      onChange={(e) => setEndOption(e.target.value)}
-                      className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    >
-                      <option value="">Select an option</option>
-                      <option value="never">Never</option>
-                      <option value="date">On date</option>
-                      <option value="after">After occurrences</option>
-                    </select>
-
-                    {endOption === 'date' && (
-                      <input
-                        type="date"
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                        className="w-full mt-2 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        min={startDate}
-                      />
-                    )}
-                  </div>
-
-                  <div className="bg-blue-50 p-3 rounded-lg">
-                    <div className="flex items-start">
-                      <Info className="w-5 h-5 text-blue-600 mt-0.5 mr-2 flex-shrink-0" />
-                      <p className="text-sm text-gray-700">
-                        Team members will not be scheduled on business closed
-                        periods.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Panel - Days */}
-              <div className="flex-1 p-6">
-                <div className="space-y-4">
-                  {DAYS_OF_WEEK.map((day) => (
-                    <div key={day} className="border-b pb-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={daySchedules[day].enabled}
-                            onChange={() => toggleDay(day)}
-                            className="w-5 h-5 text-purple-600 rounded focus:ring-purple-500 mr-3"
-                          />
-                          <div>
-                            <span className="font-medium">{day}</span>
-                            {daySchedules[day].enabled &&
-                              daySchedules[day].totalHours > 0 && (
-                                <span className="text-sm text-gray-500 ml-2">
-                                  {daySchedules[day].totalHours}h
-                                </span>
-                              )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {daySchedules[day].enabled ? (
-                        <div className="ml-8 space-y-2">
-                          {daySchedules[day].slots.map((slot) => (
-                            <div
-                              key={slot.id}
-                              className="flex items-center gap-2"
-                            >
-                              <select
-                                value={slot.start}
-                                onChange={(e) =>
-                                  updateSlot(
-                                    day,
-                                    slot.id,
-                                    'start',
-                                    e.target.value
-                                  )
-                                }
-                                className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                              >
-                                {TIME_OPTIONS.map((opt) => (
-                                  <option key={opt.value} value={opt.value}>
-                                    {opt.label}
-                                  </option>
-                                ))}
-                              </select>
-
-                              <span className="text-gray-500">-</span>
-
-                              <select
-                                value={slot.end}
-                                onChange={(e) =>
-                                  updateSlot(
-                                    day,
-                                    slot.id,
-                                    'end',
-                                    e.target.value
-                                  )
-                                }
-                                className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                              >
-                                {TIME_OPTIONS.map((opt) => (
-                                  <option key={opt.value} value={opt.value}>
-                                    {opt.label}
-                                  </option>
-                                ))}
-                              </select>
-
-                              <button
-                                onClick={() => removeSlot(day, slot.id)}
-                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
-                          ))}
-
-                          <button
-                            onClick={() => addSlot(day)}
-                            className="text-purple-600 hover:text-purple-700 text-sm font-medium"
-                          >
-                            Add a shift
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="ml-8 text-gray-500 text-sm">
-                          No shifts
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                  )}
                 </div>
 
-                {/* Total Hours Summary */}
-                <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                  <div className="text-sm text-gray-600">
-                    Total weekly hours:{' '}
-                    <span className="font-semibold">{totalWeeklyHours}h</span>
+                <div className="bg-blue-50 p-3 rounded-lg">
+                  <div className="flex items-start">
+                    <Info className="w-5 h-5 text-blue-600 mt-0.5 mr-2 flex-shrink-0" />
+                    <p className="text-sm text-gray-700">
+                      Team members will not be scheduled on business closed
+                      periods.
+                    </p>
                   </div>
                 </div>
               </div>
             </div>
-          )}
+
+            {/* Right Panel - Days */}
+            <div className="flex-1 p-6">
+              <div className="space-y-4">
+                {DAYS_OF_WEEK.map((day) => (
+                  <div key={day} className="border-b pb-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={daySchedules[day].enabled}
+                          onChange={() => toggleDay(day)}
+                          className="w-5 h-5 text-purple-600 rounded focus:ring-purple-500 mr-3"
+                        />
+                        <div>
+                          <span className="font-medium">{day}</span>
+                          {daySchedules[day].enabled &&
+                            daySchedules[day].totalHours > 0 && (
+                              <span className="text-sm text-gray-500 ml-2">
+                                {daySchedules[day].totalHours}h
+                              </span>
+                            )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {daySchedules[day].enabled ? (
+                      <div className="ml-8 space-y-2">
+                        {daySchedules[day].slots.map((slot) => (
+                          <div
+                            key={slot.id}
+                            className="flex items-center gap-2"
+                          >
+                            <select
+                              value={slot.start}
+                              onChange={(e) =>
+                                updateSlot(
+                                  day,
+                                  slot.id,
+                                  'start',
+                                  e.target.value
+                                )
+                              }
+                              className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            >
+                              {TIME_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            <span className="text-gray-500">-</span>
+
+                            <select
+                              value={slot.end}
+                              onChange={(e) =>
+                                updateSlot(day, slot.id, 'end', e.target.value)
+                              }
+                              className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            >
+                              {TIME_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            <button
+                              onClick={() => removeSlot(day, slot.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        ))}
+
+                        <button
+                          onClick={() => addSlot(day)}
+                          className="text-purple-600 hover:text-purple-700 text-sm font-medium"
+                        >
+                          Add a shift
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="ml-8 text-gray-500 text-sm">
+                        No shifts
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Total Hours Summary */}
+              <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                <div className="text-sm text-gray-600">
+                  Total weekly hours:{' '}
+                  <span className="font-semibold">{totalWeeklyHours}h</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Footer */}
