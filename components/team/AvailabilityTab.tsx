@@ -1,85 +1,93 @@
 // components/team/AvailabilityTab.tsx
 // ============================================
-'use client'
+'use client';
 
-import { useEffect, useState } from 'react'
-import { AvailabilityCalendar } from '@/components/availability/AvailabilityCalendar'
-import { AvailabilityFilters } from '@/components/availability/AvailabilityFilters'
-import { CreateAvailabilityModal } from '@/components/availability/CreateAvailabilityModal'
-import type { AvailabilitySlot, TeamMember, Shop } from '@/types/database'
-import { Plus, ChevronLeft, ChevronRight } from 'lucide-react'
-import { format, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
+import { useEffect, useState } from 'react';
+import { AvailabilityCalendar } from '@/components/availability/AvailabilityCalendar';
+import { AvailabilityFilters } from '@/components/availability/AvailabilityFilters';
+import { CreateAvailabilityModal } from '@/components/availability/CreateAvailabilityModal';
+import type { AvailabilitySlot, TeamMember, Shop } from '@/types/database';
+import { Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import { format, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns';
 
 interface AvailabilityTabProps {
-  teamMembers: TeamMember[]
+  teamMembers: TeamMember[];
 }
 
 export function AvailabilityTab({ teamMembers }: AvailabilityTabProps) {
-  const [slots, setSlots] = useState<AvailabilitySlot[]>([])
-  const [shops, setShops] = useState<Shop[]>([])
-  const [loading, setLoading] = useState(true)
-  const [currentWeek, setCurrentWeek] = useState(new Date())
-  const [selectedShop, setSelectedShop] = useState<string>('all')
-  const [selectedTeamMember, setSelectedTeamMember] = useState<string>('all')
-  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
+  const [shops, setShops] = useState<Shop[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentWeek, setCurrentWeek] = useState(new Date());
+  const [selectedShop, setSelectedShop] = useState<string>('all');
+  const [selectedTeamMember, setSelectedTeamMember] = useState<string>('all');
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
-  const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 })
-  const weekEnd = endOfWeek(currentWeek, { weekStartsOn: 1 })
+  const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 });
+  const weekEnd = endOfWeek(currentWeek, { weekStartsOn: 1 });
 
   useEffect(() => {
-    fetchData()
-  }, [currentWeek, selectedShop, selectedTeamMember])
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentWeek, selectedShop, selectedTeamMember]);
 
   async function fetchData() {
-    setLoading(true)
+    setLoading(true);
     try {
       // Fetch shops
-      const shopsResponse = await fetch('/api/admin/shops')
-      const shopsData = await shopsResponse.json()
-      setShops(shopsData.data || [])
+      const shopsResponse = await fetch('/api/admin/shops');
+      const shopsData = await shopsResponse.json();
+      setShops(shopsData.data || []);
 
       // Fetch availability slots for the current week
       const params = new URLSearchParams({
         start_date: format(weekStart, 'yyyy-MM-dd'),
         end_date: format(weekEnd, 'yyyy-MM-dd'),
-      })
-      
-      if (selectedShop !== 'all') params.append('shop_id', selectedShop)
-      if (selectedTeamMember !== 'all') params.append('team_member_id', selectedTeamMember)
+      });
 
-      const availabilityResponse = await fetch(`/api/admin/availability?${params}`)
-      const availabilityData = await availabilityResponse.json()
-      setSlots(availabilityData.data || [])
+      if (selectedShop !== 'all') params.append('shop_id', selectedShop);
+      if (selectedTeamMember !== 'all')
+        params.append('team_member_id', selectedTeamMember);
+
+      const availabilityResponse = await fetch(
+        `/api/admin/availability?${params}`
+      );
+      const availabilityData = await availabilityResponse.json();
+      setSlots(availabilityData.data || []);
     } catch (error) {
-      console.error('Error fetching data:', error)
+      console.error('Error fetching data:', error);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
   const handlePreviousWeek = () => {
-    setCurrentWeek(subWeeks(currentWeek, 1))
-  }
+    setCurrentWeek(subWeeks(currentWeek, 1));
+  };
 
   const handleNextWeek = () => {
-    setCurrentWeek(addWeeks(currentWeek, 1))
-  }
+    setCurrentWeek(addWeeks(currentWeek, 1));
+  };
 
   const handleCurrentWeek = () => {
-    setCurrentWeek(new Date())
-  }
+    setCurrentWeek(new Date());
+  };
 
   const handleSlotUpdate = () => {
-    fetchData()
-  }
+    fetchData();
+  };
 
   return (
     <>
       {/* Header */}
       <div className="mb-6 flex justify-between items-center">
         <div>
-          <h2 className="text-lg font-medium text-gray-900">Scheduled Shifts</h2>
-          <p className="text-sm text-gray-600 mt-1">Manage team schedules across all locations</p>
+          <h2 className="text-lg font-medium text-gray-900">
+            Scheduled Shifts
+          </h2>
+          <p className="text-sm text-gray-600 mt-1">
+            Manage team schedules across all locations
+          </p>
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
@@ -151,11 +159,11 @@ export function AvailabilityTab({ teamMembers }: AvailabilityTabProps) {
           shops={shops}
           onClose={() => setShowCreateModal(false)}
           onSuccess={() => {
-            setShowCreateModal(false)
-            fetchData()
+            setShowCreateModal(false);
+            fetchData();
           }}
         />
       )}
     </>
-  )
+  );
 }

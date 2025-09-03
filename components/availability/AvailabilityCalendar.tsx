@@ -107,31 +107,23 @@ export function AvailabilityCalendar({
                       key={day.toISOString()}
                       className="p-2 text-center align-top"
                     >
-                      {daySlots.length > 0 ? (
+                      {daySlots.length > 0 && (
                         <div className="space-y-1">
                           {daySlots.map((slot) => {
-                            const shop = shops.find(
-                              (s) => s.id === slot.shop_id
-                            );
                             return (
                               <button
                                 key={slot.id}
                                 onClick={() => setSelectedSlot(slot)}
-                                className="w-full px-2 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 rounded transition-colors"
+                                className="w-full  px-2 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 rounded transition-colors"
                               >
                                 <div className="font-medium">
                                   {formatTime(slot.start_time)} -{' '}
                                   {formatTime(slot.end_time)}
                                 </div>
-                                <div className="text-blue-600 truncate">
-                                  {shop?.name}
-                                </div>
                               </button>
                             );
                           })}
                         </div>
-                      ) : (
-                        <div className="text-gray-400 text-xs">No shifts</div>
                       )}
                     </td>
                   );
