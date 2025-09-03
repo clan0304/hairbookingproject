@@ -39,9 +39,22 @@ export function DateTimeSelection({
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentWeek, setCurrentWeek] = useState(new Date());
-  const [sessionId] = useState(() => crypto.randomUUID()); // Unique session ID for this booking
+  const [sessionId] = useState(
+    () => bookingState.sessionId || crypto.randomUUID()
+  ); // Use existing or create new
   const [reservationExpiry, setReservationExpiry] = useState<Date | null>(null);
   const reservationTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Update bookingState with sessionId on mount
+  useEffect(() => {
+    if (!bookingState.sessionId) {
+      onUpdate({
+        ...bookingState,
+        sessionId: sessionId,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Fetch available slots
   const fetchAvailableSlots = useCallback(async () => {
@@ -136,20 +149,17 @@ export function DateTimeSelection({
     }, 1000);
   };
 
-  // Clean up reservation on unmount or when changing date/time
+  // Clean up reservation ONLY when going back or truly unmounting
+  // Don't clean up when moving forward to review/confirm
   useEffect(() => {
     return () => {
       if (reservationTimerRef.current) {
         clearInterval(reservationTimerRef.current);
       }
-      // Release reservation when component unmounts
-      if (sessionId) {
-        fetch(`/api/public/booking/reserve?session_id=${sessionId}`, {
-          method: 'DELETE',
-        });
-      }
+      // Don't release reservation here - it will be released by the booking API
+      // or if the user goes back to select a different time
     };
-  }, [sessionId]);
+  }, []);
 
   const handleDateSelect = (date: Date) => {
     // Release current reservation if changing date
@@ -175,6 +185,7 @@ export function DateTimeSelection({
     onUpdate({
       ...bookingState,
       selectedTime: slot.display_time,
+      sessionId: sessionId, // Ensure sessionId is included
     });
   };
 
@@ -231,87 +242,98 @@ export function DateTimeSelection({
             </div>
             <span className="font-medium">{bookingState.teamMemberName}</span>
           </div>
+          <span className="text-sm text-gray-600">
+            {bookingState.serviceDuration} mins
+          </span>
         </div>
       )}
 
-      {/* Month and Navigation */}
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">
-          {format(currentWeek, 'MMMM yyyy')}
-        </h3>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={goToPreviousWeek}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            aria-label="Previous week"
-          >
-            <ChevronLeft size={20} className="text-gray-600" />
-          </button>
-          <button
-            onClick={goToNextWeek}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            aria-label="Next week"
-          >
-            <ChevronRight size={20} className="text-gray-600" />
-          </button>
-        </div>
-      </div>
-
       {/* Date Selector */}
-      <div className="grid grid-cols-7 gap-2">
-        {weekDates.map((date, index) => {
-          const isSelected =
-            selectedDate?.toDateString() === date.toDateString();
-          const isToday = new Date().toDateString() === date.toDateString();
-          const isPast = date < new Date(new Date().setHours(0, 0, 0, 0));
-          const dayNumber = format(date, 'd');
-          const dayName = format(date, 'EEE');
-
-          return (
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-medium text-gray-700">Select Date</h3>
+          <div className="flex items-center gap-2">
             <button
-              key={`date-${format(date, 'yyyy-MM-dd')}-${index}`}
-              onClick={() => !isPast && handleDateSelect(date)}
-              disabled={isPast}
-              className={`
-                relative p-3 rounded-xl text-center transition-all
-                ${
-                  isSelected
-                    ? 'bg-purple-600 text-white shadow-lg transform scale-105'
-                    : isPast
-                    ? 'bg-gray-50 text-gray-300 cursor-not-allowed'
-                    : 'bg-white hover:bg-purple-50 hover:shadow-md text-gray-700'
-                }
-                ${isToday && !isSelected ? 'ring-2 ring-purple-200' : ''}
-              `}
+              onClick={goToPreviousWeek}
+              className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+              disabled={
+                weekStart <= new Date() ||
+                weekStart.toDateString() === new Date().toDateString()
+              }
             >
-              <div
-                className={`text-2xl font-bold mb-1 ${
-                  isSelected
-                    ? 'text-white'
-                    : isPast
+              <ChevronLeft
+                className={`w-5 h-5 ${
+                  weekStart <= new Date() ||
+                  weekStart.toDateString() === new Date().toDateString()
                     ? 'text-gray-300'
-                    : 'text-gray-900'
+                    : 'text-gray-600'
                 }`}
-              >
-                {dayNumber}
-              </div>
-              <div
-                className={`text-xs ${
-                  isSelected ? 'text-purple-100' : 'text-gray-500'
-                }`}
-              >
-                {dayName}
-              </div>
-              {isToday && (
-                <div
-                  className={`absolute top-1 right-1 w-2 h-2 rounded-full ${
-                    isSelected ? 'bg-white' : 'bg-purple-600'
-                  }`}
-                />
-              )}
+              />
             </button>
-          );
-        })}
+            <button
+              onClick={goToNextWeek}
+              className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <ChevronRight className="w-5 h-5 text-gray-600" />
+            </button>
+          </div>
+        </div>
+
+        {/* Week Days */}
+        <div className="grid grid-cols-7 gap-2">
+          {weekDates.map((date) => {
+            const isSelected =
+              selectedDate.toDateString() === date.toDateString();
+            const isToday = new Date().toDateString() === date.toDateString();
+            const isPast = date < new Date() && !isToday;
+            const dayName = format(date, 'EEE');
+            const dayNumber = format(date, 'd');
+
+            return (
+              <button
+                key={date.toISOString()}
+                onClick={() => !isPast && handleDateSelect(date)}
+                disabled={isPast}
+                className={`
+                  relative p-3 rounded-lg text-center transition-all
+                  ${
+                    isSelected
+                      ? 'bg-purple-600 text-white shadow-md'
+                      : isPast
+                      ? 'bg-gray-50 text-gray-300 cursor-not-allowed'
+                      : 'bg-white hover:bg-gray-50 border border-gray-200'
+                  }
+                `}
+              >
+                <div
+                  className={`text-lg font-medium ${
+                    isSelected
+                      ? 'text-white'
+                      : isPast
+                      ? 'text-gray-300'
+                      : 'text-gray-900'
+                  }`}
+                >
+                  {dayNumber}
+                </div>
+                <div
+                  className={`text-xs ${
+                    isSelected ? 'text-purple-100' : 'text-gray-500'
+                  }`}
+                >
+                  {dayName}
+                </div>
+                {isToday && (
+                  <div
+                    className={`absolute top-1 right-1 w-2 h-2 rounded-full ${
+                      isSelected ? 'bg-white' : 'bg-purple-600'
+                    }`}
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Time Slots Grid */}
@@ -346,8 +368,8 @@ export function DateTimeSelection({
                       isSelected
                         ? 'bg-purple-600 text-white shadow-md transform scale-105'
                         : slot.is_available
-                        ? 'bg-white border-2 border-gray-200 hover:border-purple-300 hover:bg-purple-50 text-gray-900'
-                        : 'bg-gray-50 text-gray-300 cursor-not-allowed border-2 border-gray-100'
+                        ? 'bg-white border border-gray-200 hover:border-purple-300 hover:shadow-sm'
+                        : 'bg-gray-50 text-gray-300 cursor-not-allowed'
                     }
                   `}
                 >
@@ -358,51 +380,12 @@ export function DateTimeSelection({
           </div>
         ) : (
           <Card className="p-8 text-center">
-            <div className="text-gray-400 mb-2">
-              <svg
-                className="w-12 h-12 mx-auto mb-3"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.5}
-                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-            </div>
-            <p className="text-gray-600 font-medium">No available time slots</p>
-            <p className="text-sm text-gray-500 mt-1">
-              Please select a different date or professional
+            <p className="text-gray-500">
+              No available times for this date. Please select another date.
             </p>
           </Card>
         )}
       </div>
-
-      {/* Selected Time Summary */}
-      {bookingState.selectedTime && (
-        <Card className="p-4 bg-purple-50 border-purple-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-purple-600 font-medium">
-                Selected appointment:
-              </p>
-              <p className="text-lg font-semibold text-purple-900">
-                {format(selectedDate, 'EEEE, MMMM d')} at{' '}
-                {bookingState.selectedTime}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm text-purple-600">Duration</p>
-              <p className="font-semibold text-purple-900">
-                {serviceDuration} mins
-              </p>
-            </div>
-          </div>
-        </Card>
-      )}
     </div>
   );
 }

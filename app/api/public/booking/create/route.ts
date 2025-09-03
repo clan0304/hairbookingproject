@@ -2,7 +2,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createServerClient } from '@/lib/supabase/server';
-import { addMinutes, format } from 'date-fns';
 
 export async function POST(req: Request) {
   try {
@@ -38,8 +37,8 @@ export async function POST(req: Request) {
       !body.team_member_id ||
       !body.shop_id ||
       !body.service_id ||
-      !body.booking_date ||
-      !body.start_time ||
+      !body.starts_at ||
+      !body.ends_at ||
       !body.duration ||
       body.price === undefined ||
       body.price === null
@@ -50,28 +49,12 @@ export async function POST(req: Request) {
       );
     }
 
-    // Ensure start_time is in proper format (HH:mm:ss)
-    let formattedStartTime = body.start_time;
-    if (!formattedStartTime.includes(':')) {
-      formattedStartTime = `${formattedStartTime}:00`;
-    }
-    if (formattedStartTime.split(':').length === 2) {
-      formattedStartTime = `${formattedStartTime}:00`;
-    }
-
-    // Calculate end time based on start time and duration
-    const [hours, minutes] = formattedStartTime.split(':').map(Number);
-    const startDate = new Date();
-    startDate.setHours(hours, minutes, 0, 0);
-    const endDate = addMinutes(startDate, body.duration);
-    const endTime = format(endDate, 'HH:mm:ss');
-
     // Generate booking number (format: BK-YYYYMMDD-XXXX)
-    const dateStr = body.booking_date.replace(/-/g, '');
+    const dateStr = body.starts_at.split('T')[0].replace(/-/g, '');
     const randomNum = Math.floor(1000 + Math.random() * 9000);
     const bookingNumber = `BK-${dateStr}-${randomNum}`;
 
-    // Insert directly into bookings table
+    // Insert directly into bookings table with starts_at and ends_at
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
       .insert({
@@ -81,9 +64,8 @@ export async function POST(req: Request) {
         shop_id: body.shop_id,
         service_id: body.service_id,
         variant_id: body.variant_id || null,
-        booking_date: body.booking_date,
-        start_time: formattedStartTime,
-        end_time: endTime,
+        starts_at: body.starts_at, // Using starts_at timestamp
+        ends_at: body.ends_at, // Using ends_at timestamp
         duration: body.duration,
         price: body.price,
         status: 'confirmed',

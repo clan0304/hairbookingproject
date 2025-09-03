@@ -205,4 +205,6 @@ export interface BookingFlowState {
   clientName: string;
   clientEmail: string;
   clientPhone: string;
+  // Session management
+  sessionId?: string; // Added: Session ID for reservation management
 }

@@ -43,6 +43,7 @@ export default function BookingPage() {
     clientName: '',
     clientEmail: '',
     clientPhone: '',
+    sessionId: undefined,
   });
 
   // Memoize fetchShopDetails with useCallback
@@ -84,7 +85,6 @@ export default function BookingPage() {
     } catch (err) {
       console.error('Error fetching shop:', err);
       setError('Failed to load shop information. Please try again.');
-      // Don't redirect on general errors, let user see the error message
     } finally {
       setLoading(false);
     }
@@ -213,9 +213,17 @@ export default function BookingPage() {
 
       {/* Main Content */}
       <div className="max-w-4xl mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div
+          className={`grid grid-cols-1 ${
+            currentStep === 'confirm' ? '' : 'lg:grid-cols-3'
+          } gap-6`}
+        >
           {/* Left Content - Steps */}
-          <div className="lg:col-span-2">
+          <div
+            className={
+              currentStep === 'confirm' ? 'col-span-1' : 'lg:col-span-2'
+            }
+          >
             {currentStep === 'service' && (
               <ServiceSelection
                 shopId={shop.id}
@@ -260,105 +268,110 @@ export default function BookingPage() {
             )}
           </div>
 
-          {/* Right Sidebar - Summary */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg p-6 sticky top-24">
-              <h3 className="font-semibold text-gray-900 mb-4">
-                Booking Summary
-              </h3>
+          {/* Right Sidebar - Summary - Only show if not on confirm step */}
+          {currentStep !== 'confirm' && (
+            <div className="lg:col-span-1">
+              <div className="bg-white rounded-lg p-6 sticky top-24">
+                <h3 className="font-semibold text-gray-900 mb-4">
+                  Booking Summary
+                </h3>
 
-              {/* Shop Info */}
-              <div className="flex items-start space-x-3 mb-4">
-                <div className="w-12 h-12 bg-gray-200 rounded-lg flex items-center justify-center">
-                  <MapPin className="text-gray-500" size={20} />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-sm">{shop.name}</p>
-                  <p className="text-xs text-gray-500">{shop.address}</p>
-                  <div className="flex items-center mt-1">
-                    <Star className="w-3 h-3 text-yellow-500 fill-current" />
-                    <span className="text-xs text-gray-600 ml-1">
-                      5.0 (2,711)
-                    </span>
+                {/* Shop Info */}
+                <div className="flex items-start space-x-3 mb-4">
+                  <div className="w-12 h-12 bg-gray-200 rounded-lg flex items-center justify-center">
+                    <MapPin className="text-gray-500" size={20} />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-medium text-sm">{shop.name}</p>
+                    <p className="text-xs text-gray-500">{shop.address}</p>
+                    <div className="flex items-center mt-1">
+                      <Star className="w-3 h-3 text-yellow-500 fill-current" />
+                      <span className="text-xs text-gray-600 ml-1">
+                        5.0 (2,711)
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="space-y-3 border-t pt-4">
-                {bookingState.serviceName && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Service:</span>
-                    <span className="font-medium text-right">
-                      {bookingState.serviceName}
-                      {bookingState.variantName && (
-                        <span className="block text-xs text-gray-500">
-                          {bookingState.variantName}
+                <div className="space-y-3 border-t pt-4">
+                  {bookingState.serviceName && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Service:</span>
+                      <span className="font-medium text-right">
+                        {bookingState.serviceName}
+                        {bookingState.variantName && (
+                          <span className="block text-xs text-gray-500">
+                            {bookingState.variantName}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )}
+
+                  {bookingState.teamMemberName && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Professional:</span>
+                      <span className="font-medium">
+                        {bookingState.teamMemberName}
+                      </span>
+                    </div>
+                  )}
+
+                  {bookingState.selectedDate && bookingState.selectedTime && (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Date:</span>
+                        <span className="font-medium">
+                          {bookingState.selectedDate.toLocaleDateString(
+                            'en-US',
+                            {
+                              weekday: 'short',
+                              month: 'short',
+                              day: 'numeric',
+                            }
+                          )}
                         </span>
-                      )}
-                    </span>
-                  </div>
-                )}
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Time:</span>
+                        <span className="font-medium">
+                          {bookingState.selectedTime}
+                        </span>
+                      </div>
+                    </>
+                  )}
 
-                {bookingState.teamMemberName && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Professional:</span>
-                    <span className="font-medium">
-                      {bookingState.teamMemberName}
-                    </span>
-                  </div>
-                )}
-
-                {bookingState.selectedDate && bookingState.selectedTime && (
-                  <>
+                  {bookingState.serviceDuration && (
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Date:</span>
+                      <span className="text-gray-600">Duration:</span>
                       <span className="font-medium">
-                        {bookingState.selectedDate.toLocaleDateString('en-US', {
-                          weekday: 'short',
-                          month: 'short',
-                          day: 'numeric',
-                        })}
+                        {bookingState.serviceDuration} mins
                       </span>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Time:</span>
-                      <span className="font-medium">
-                        {bookingState.selectedTime}
-                      </span>
-                    </div>
-                  </>
-                )}
-
-                {bookingState.serviceDuration && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Duration:</span>
-                    <span className="font-medium">
-                      {bookingState.serviceDuration} mins
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {bookingState.teamMemberPrice && (
-                <div className="border-t mt-4 pt-4">
-                  <div className="flex justify-between">
-                    <span className="font-semibold">Total</span>
-                    <span className="font-semibold text-lg">
-                      ${bookingState.teamMemberPrice.toFixed(2)}
-                    </span>
-                  </div>
+                  )}
                 </div>
-              )}
 
-              <Button
-                className="w-full mt-6"
-                onClick={handleNext}
-                disabled={!isStepValid() || currentStep === 'confirm'}
-              >
-                {currentStep === 'review' ? 'Confirm Booking' : 'Continue'}
-              </Button>
+                {bookingState.teamMemberPrice && (
+                  <div className="border-t mt-4 pt-4">
+                    <div className="flex justify-between">
+                      <span className="font-semibold">Total</span>
+                      <span className="font-semibold text-lg">
+                        ${bookingState.teamMemberPrice.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <Button
+                  className="w-full mt-6"
+                  onClick={handleNext}
+                  disabled={!isStepValid()}
+                >
+                  {currentStep === 'review' ? 'Confirm Booking' : 'Continue'}
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
