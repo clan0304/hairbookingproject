@@ -1,151 +1,153 @@
-// components/availability/AvailabilityCalendar.tsx
-// ============================================
+// app/admin/calendar/page.tsx
 'use client';
 
-import { useState } from 'react';
-import { format, addDays, isSameDay } from 'date-fns';
-import { EditSlotModal } from './EditSlotModal';
-import type { AvailabilitySlot, TeamMember, Shop } from '@/types/database';
-import Image from 'next/image';
+import { useState, useEffect, useCallback } from 'react';
+import { CalendarFilters } from '@/components/calendar/CalendarFilters';
+import { CalendarGrid } from '@/components/calendar/CalendarGrid';
+import type { BookingWithLocalTimes, Shop, TeamMember } from '@/types/database';
+import { format, startOfWeek, endOfWeek, startOfDay, endOfDay } from 'date-fns';
 
-interface AvailabilityCalendarProps {
-  slots: AvailabilitySlot[];
-  teamMembers: TeamMember[];
-  shops: Shop[];
-  weekStart: Date;
-  onSlotUpdate: () => void;
-}
+type ViewMode = 'day' | 'week';
 
-export function AvailabilityCalendar({
-  slots,
-  teamMembers,
-  shops,
-  weekStart,
-  onSlotUpdate,
-}: AvailabilityCalendarProps) {
-  const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(
-    null
-  );
-  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+export default function CalendarPage() {
+  const [bookings, setBookings] = useState<BookingWithLocalTimes[]>([]);
+  const [shops, setShops] = useState<Shop[]>([]);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Group slots by team member
-  const slotsByMember = teamMembers.reduce((acc, member) => {
-    acc[member.id] = slots.filter((slot) => slot.team_member_id === member.id);
-    return acc;
-  }, {} as Record<string, AvailabilitySlot[]>);
+  // Filter states
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedShop, setSelectedShop] = useState<string>('all');
+  const [selectedTeamMembers, setSelectedTeamMembers] = useState<string[]>([]);
+  const [viewMode, setViewMode] = useState<ViewMode>('day');
+  const [showAllStaff, setShowAllStaff] = useState(true);
 
-  const getSlotForDay = (memberId: string, day: Date) => {
-    return (
-      slotsByMember[memberId]?.filter((slot) =>
-        isSameDay(new Date(slot.date), day)
-      ) || []
-    );
+  // Fetch bookings with useCallback to memoize the function
+  const fetchBookings = useCallback(async () => {
+    try {
+      setLoading(true);
+
+      let startDate, endDate;
+      if (viewMode === 'day') {
+        startDate = startOfDay(selectedDate);
+        endDate = endOfDay(selectedDate);
+      } else {
+        startDate = startOfWeek(selectedDate, { weekStartsOn: 1 });
+        endDate = endOfWeek(selectedDate, { weekStartsOn: 1 });
+      }
+
+      const params = new URLSearchParams({
+        start_date: format(startDate, 'yyyy-MM-dd'),
+        end_date: format(endDate, 'yyyy-MM-dd'),
+        ...(selectedShop !== 'all' && { shop_id: selectedShop }),
+        ...(selectedTeamMembers.length > 0 && {
+          team_member_ids: selectedTeamMembers.join(','),
+        }),
+      });
+
+      const response = await fetch(`/api/admin/calendar/bookings?${params}`);
+      const data = await response.json();
+
+      if (data.data) {
+        setBookings(data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching bookings:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedDate, selectedShop, selectedTeamMembers, viewMode]);
+
+  // Initial data fetch
+  useEffect(() => {
+    async function fetchInitialData() {
+      try {
+        // Fetch shops
+        const shopsRes = await fetch('/api/admin/shops');
+        const shopsData = await shopsRes.json();
+        if (shopsData.data) {
+          setShops(shopsData.data);
+          if (shopsData.data.length > 0 && selectedShop === 'all') {
+            setSelectedShop(shopsData.data[0].id);
+          }
+        }
+
+        // Fetch team members
+        const teamRes = await fetch('/api/admin/team');
+        const teamData = await teamRes.json();
+        if (teamData.data) {
+          setTeamMembers(teamData.data);
+        }
+      } catch (error) {
+        console.error('Error fetching initial data:', error);
+      }
+    }
+
+    fetchInitialData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // This is fine as the function is defined inside the effect
+
+  // Fetch bookings when filters change
+  useEffect(() => {
+    fetchBookings();
+  }, [fetchBookings]);
+
+  const handleTeamMemberToggle = (memberId: string) => {
+    if (memberId === 'all') {
+      setShowAllStaff(!showAllStaff);
+      setSelectedTeamMembers([]);
+    } else {
+      setSelectedTeamMembers((prev) => {
+        if (prev.includes(memberId)) {
+          return prev.filter((id) => id !== memberId);
+        }
+        return [...prev, memberId];
+      });
+      setShowAllStaff(false);
+    }
   };
 
-  const formatTime = (time: string) => {
-    const [hours, minutes] = time.split(':');
-    const hour = parseInt(hours);
-    const ampm = hour >= 12 ? 'pm' : 'am';
-    const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
-    return `${displayHour}${minutes !== '00' ? `:${minutes}` : ''}${ampm}`;
-  };
+  // Filter team members based on selected shop
+  const filteredTeamMembers = teamMembers.filter(() => {
+    if (selectedShop === 'all') return true;
+    // In a real app, you might have a shop_team_members junction table
+    // For now, we'll show all team members
+    return true;
+  });
+
+  const displayedTeamMembers = showAllStaff
+    ? filteredTeamMembers
+    : filteredTeamMembers.filter((m) => selectedTeamMembers.includes(m.id));
 
   return (
-    <>
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b">
-              <th className="text-left p-4 font-medium text-gray-900 min-w-[200px]">
-                Team Member
-              </th>
-              {days.map((day) => (
-                <th
-                  key={day.toISOString()}
-                  className="text-center p-4 min-w-[140px]"
-                >
-                  <div className="font-medium text-gray-900">
-                    {format(day, 'EEE')}
-                  </div>
-                  <div className="text-sm text-gray-500">
-                    {format(day, 'MMM d')}
-                  </div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {teamMembers.map((member) => (
-              <tr key={member.id} className="border-b hover:bg-gray-50">
-                <td className="p-4">
-                  <div className="flex items-center">
-                    {member.photo ? (
-                      <Image
-                        src={member.photo}
-                        alt={member.first_name}
-                        className="w-8 h-8 rounded-full mr-3"
-                        width={8}
-                        height={8}
-                      />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-gray-300 mr-3 flex items-center justify-center text-xs font-medium text-white">
-                        {member.first_name[0]}
-                      </div>
-                    )}
-                    <div>
-                      <div className="font-medium text-gray-900">
-                        {member.first_name} {member.last_name}
-                      </div>
-                      <div className="text-xs text-gray-500">{member.role}</div>
-                    </div>
-                  </div>
-                </td>
-                {days.map((day) => {
-                  const daySlots = getSlotForDay(member.id, day);
-                  return (
-                    <td
-                      key={day.toISOString()}
-                      className="p-2 text-center align-top"
-                    >
-                      {daySlots.length > 0 && (
-                        <div className="space-y-1">
-                          {daySlots.map((slot) => {
-                            return (
-                              <button
-                                key={slot.id}
-                                onClick={() => setSelectedSlot(slot)}
-                                className="w-full  px-2 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 rounded transition-colors"
-                              >
-                                <div className="font-medium">
-                                  {formatTime(slot.start_time)} -{' '}
-                                  {formatTime(slot.end_time)}
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="h-full flex flex-col">
+      <div className="flex-none">
+        <h1 className="text-3xl font-bold text-gray-900 mb-6">Calendar</h1>
+
+        <CalendarFilters
+          selectedDate={selectedDate}
+          onDateChange={setSelectedDate}
+          selectedShop={selectedShop}
+          onShopChange={setSelectedShop}
+          shops={shops}
+          teamMembers={filteredTeamMembers}
+          selectedTeamMembers={selectedTeamMembers}
+          onTeamMemberToggle={handleTeamMemberToggle}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          showAllStaff={showAllStaff}
+        />
       </div>
 
-      {/* Edit Slot Modal */}
-      {selectedSlot && (
-        <EditSlotModal
-          slot={selectedSlot}
-          shops={shops}
-          onClose={() => setSelectedSlot(null)}
-          onSuccess={() => {
-            setSelectedSlot(null);
-            onSlotUpdate();
-          }}
+      <div className="flex-1 overflow-hidden mt-6">
+        <CalendarGrid
+          bookings={bookings}
+          teamMembers={displayedTeamMembers}
+          selectedDate={selectedDate}
+          viewMode={viewMode}
+          loading={loading}
         />
-      )}
-    </>
+      </div>
+    </div>
   );
 }

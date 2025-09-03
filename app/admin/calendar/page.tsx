@@ -9,11 +9,24 @@ import { format, startOfWeek, endOfWeek, startOfDay, endOfDay } from 'date-fns';
 
 type ViewMode = 'day' | 'week';
 
+// Extended type to include assignment status
+interface TeamMemberWithStatus extends TeamMember {
+  is_assigned: boolean;
+  other_shops: string[];
+}
+
 export default function CalendarPage() {
   const [bookings, setBookings] = useState<BookingWithLocalTimes[]>([]);
   const [shops, setShops] = useState<Shop[]>([]);
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [allTeamMembers, setAllTeamMembers] = useState<TeamMemberWithStatus[]>(
+    []
+  );
+  const [filteredTeamMembers, setFilteredTeamMembers] = useState<TeamMember[]>(
+    []
+  );
   const [loading, setLoading] = useState(true);
+  const [loadingTeamMembers, setLoadingTeamMembers] = useState(false);
 
   // Filter states
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -21,6 +34,64 @@ export default function CalendarPage() {
   const [selectedTeamMembers, setSelectedTeamMembers] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>('day');
   const [showAllStaff, setShowAllStaff] = useState(true);
+
+  // Fetch team members for the selected shop
+  const fetchTeamMembersForShop = useCallback(async (shopId: string) => {
+    if (shopId === 'all') {
+      // If "all" is selected, fetch all team members
+      try {
+        setLoadingTeamMembers(true);
+        const response = await fetch('/api/admin/team');
+        const data = await response.json();
+
+        if (data.data) {
+          setAllTeamMembers(
+            data.data.map((member: TeamMember) => ({
+              ...member,
+              is_assigned: true, // All members are "assigned" when viewing all
+              other_shops: [],
+            }))
+          );
+          setFilteredTeamMembers(data.data);
+        }
+      } catch (error) {
+        console.error('Error fetching all team members:', error);
+      } finally {
+        setLoadingTeamMembers(false);
+      }
+    } else {
+      // Fetch team members assigned to specific shop
+      try {
+        setLoadingTeamMembers(true);
+        const response = await fetch(`/api/admin/shops/${shopId}/team-members`);
+        const data = await response.json();
+
+        if (response.ok && data.data) {
+          setAllTeamMembers(data.data);
+          // Filter to only show assigned members
+          const assignedMembers = data.data.filter(
+            (m: TeamMemberWithStatus) => m.is_assigned
+          );
+          setFilteredTeamMembers(assignedMembers);
+
+          // Reset selected team members if they're not in the new filtered list
+          setSelectedTeamMembers((prev) =>
+            prev.filter((id) =>
+              assignedMembers.some((m: TeamMember) => m.id === id)
+            )
+          );
+        } else {
+          console.error('Failed to fetch team members for shop:', data.error);
+          setFilteredTeamMembers([]);
+        }
+      } catch (error) {
+        console.error('Error fetching team members for shop:', error);
+        setFilteredTeamMembers([]);
+      } finally {
+        setLoadingTeamMembers(false);
+      }
+    }
+  }, []);
 
   // Fetch bookings with useCallback to memoize the function
   const fetchBookings = useCallback(async () => {
@@ -40,9 +111,10 @@ export default function CalendarPage() {
         start_date: format(startDate, 'yyyy-MM-dd'),
         end_date: format(endDate, 'yyyy-MM-dd'),
         ...(selectedShop !== 'all' && { shop_id: selectedShop }),
-        ...(selectedTeamMembers.length > 0 && {
-          team_member_ids: selectedTeamMembers.join(','),
-        }),
+        ...(selectedTeamMembers.length > 0 &&
+          !showAllStaff && {
+            team_member_ids: selectedTeamMembers.join(','),
+          }),
       });
 
       const response = await fetch(`/api/admin/calendar/bookings?${params}`);
@@ -56,9 +128,9 @@ export default function CalendarPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedDate, selectedShop, selectedTeamMembers, viewMode]);
+  }, [selectedDate, selectedShop, selectedTeamMembers, viewMode, showAllStaff]);
 
-  // Initial data fetch
+  // Initial data fetch - shops only
   useEffect(() => {
     async function fetchInitialData() {
       try {
@@ -67,16 +139,11 @@ export default function CalendarPage() {
         const shopsData = await shopsRes.json();
         if (shopsData.data) {
           setShops(shopsData.data);
-          if (shopsData.data.length > 0 && selectedShop === 'all') {
-            setSelectedShop(shopsData.data[0].id);
+          if (shopsData.data.length > 0) {
+            // Set first shop as default
+            const firstShopId = shopsData.data[0].id;
+            setSelectedShop(firstShopId);
           }
-        }
-
-        // Fetch team members
-        const teamRes = await fetch('/api/admin/team');
-        const teamData = await teamRes.json();
-        if (teamData.data) {
-          setTeamMembers(teamData.data);
         }
       } catch (error) {
         console.error('Error fetching initial data:', error);
@@ -84,13 +151,21 @@ export default function CalendarPage() {
     }
 
     fetchInitialData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // This is fine as the function is defined inside the effect
+  }, []);
+
+  // Fetch team members when selected shop changes
+  useEffect(() => {
+    if (selectedShop) {
+      fetchTeamMembersForShop(selectedShop);
+    }
+  }, [selectedShop, fetchTeamMembersForShop]);
 
   // Fetch bookings when filters change
   useEffect(() => {
-    fetchBookings();
-  }, [fetchBookings]);
+    if (selectedShop) {
+      fetchBookings();
+    }
+  }, [fetchBookings, selectedShop]);
 
   const handleTeamMemberToggle = (memberId: string) => {
     if (memberId === 'all') {
@@ -107,14 +182,14 @@ export default function CalendarPage() {
     }
   };
 
-  // Filter team members based on selected shop
-  const filteredTeamMembers = teamMembers.filter(() => {
-    if (selectedShop === 'all') return true;
-    // In a real app, you might have a shop_team_members junction table
-    // For now, we'll show all team members
-    return true;
-  });
+  const handleShopChange = (shopId: string) => {
+    setSelectedShop(shopId);
+    // Reset team member selection when shop changes
+    setShowAllStaff(true);
+    setSelectedTeamMembers([]);
+  };
 
+  // Determine which team members to display in the calendar
   const displayedTeamMembers = showAllStaff
     ? filteredTeamMembers
     : filteredTeamMembers.filter((m) => selectedTeamMembers.includes(m.id));
@@ -128,7 +203,7 @@ export default function CalendarPage() {
           selectedDate={selectedDate}
           onDateChange={setSelectedDate}
           selectedShop={selectedShop}
-          onShopChange={setSelectedShop}
+          onShopChange={handleShopChange}
           shops={shops}
           teamMembers={filteredTeamMembers}
           selectedTeamMembers={selectedTeamMembers}
@@ -136,6 +211,7 @@ export default function CalendarPage() {
           viewMode={viewMode}
           onViewModeChange={setViewMode}
           showAllStaff={showAllStaff}
+          loadingTeamMembers={loadingTeamMembers}
         />
       </div>
 
@@ -145,7 +221,7 @@ export default function CalendarPage() {
           teamMembers={displayedTeamMembers}
           selectedDate={selectedDate}
           viewMode={viewMode}
-          loading={loading}
+          loading={loading || loadingTeamMembers}
         />
       </div>
     </div>
