@@ -3,71 +3,110 @@
 
 import { useEffect, useState } from 'react';
 
+interface TimeSlot {
+  hour: number;
+  minute: number;
+  label?: string;
+  display?: string;
+}
+
 interface CurrentTimeIndicatorProps {
-  startHour: number;
-  endHour: number;
-  pixelsPerMinute: number;
+  timeSlots?: TimeSlot[];
+  slotHeight?: number;
 }
 
 export function CurrentTimeIndicator({
-  startHour,
-  endHour,
-  pixelsPerMinute,
+  timeSlots = [],
+  slotHeight = 20,
 }: CurrentTimeIndicatorProps) {
-  const [currentMinutes, setCurrentMinutes] = useState(0);
-  const [isVisible, setIsVisible] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
-    const updateTime = () => {
-      const now = new Date();
-      const hours = now.getHours();
-      const minutes = now.getMinutes();
-      const totalMinutes = hours * 60 + minutes;
-      const startMinutes = startHour * 60;
-      const endMinutes = endHour * 60;
+    // Update immediately on mount
+    setCurrentTime(new Date());
 
-      // Check if current time is within the visible range
-      if (totalMinutes >= startMinutes && totalMinutes <= endMinutes) {
-        setCurrentMinutes(totalMinutes - startMinutes);
-        setIsVisible(true);
-      } else {
-        setIsVisible(false);
+    // Then update every minute
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  // Safety checks
+  if (!timeSlots || timeSlots.length === 0) {
+    console.warn('CurrentTimeIndicator: No time slots provided');
+    return null;
+  }
+
+  const currentHour = currentTime.getHours();
+  const currentMinute = currentTime.getMinutes();
+
+  // Check if current time is within the time slots range
+  const firstSlot = timeSlots[0];
+  const lastSlot = timeSlots[timeSlots.length - 1];
+
+  if (!firstSlot || !lastSlot) {
+    return null;
+  }
+
+  // Check if current time is outside of business hours
+  if (
+    currentHour < firstSlot.hour ||
+    (currentHour === lastSlot.hour && currentMinute > lastSlot.minute + 14) ||
+    currentHour > lastSlot.hour
+  ) {
+    return null;
+  }
+
+  // Find the slot that contains the current time
+  let slotIndex = -1;
+  for (let i = 0; i < timeSlots.length; i++) {
+    const slot = timeSlots[i];
+    if (!slot) continue;
+
+    if (slot.hour === currentHour) {
+      // Check if current minute falls within this 15-minute slot
+      if (currentMinute >= slot.minute && currentMinute < slot.minute + 15) {
+        slotIndex = i;
+        break;
       }
-    };
+    }
+  }
 
-    // Update immediately
-    updateTime();
+  // If we couldn't find an exact slot, return null
+  if (slotIndex === -1) {
+    return null;
+  }
 
-    // Update every minute
-    const interval = setInterval(updateTime, 60000);
-
-    return () => clearInterval(interval);
-  }, [startHour, endHour]);
-
-  if (!isVisible) return null;
-
-  const topPosition = currentMinutes * pixelsPerMinute;
-  const currentTime = new Date().toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  // Calculate exact position
+  const slot = timeSlots[slotIndex];
+  const minutesIntoSlot = currentMinute - slot.minute;
+  const pixelOffset = (minutesIntoSlot / 15) * slotHeight;
+  const topPosition = slotIndex * slotHeight + pixelOffset;
 
   return (
     <div
-      className="absolute left-0 right-0 pointer-events-none z-30"
+      className="absolute left-0 right-0 z-30 pointer-events-none"
       style={{ top: `${topPosition}px` }}
     >
-      {/* Time label */}
-      <div className="absolute -left-20 -top-2 bg-red-500 text-white text-xs px-2 py-1 rounded font-medium">
-        {currentTime}
-      </div>
-
-      {/* Red line */}
-      <div className="h-0.5 bg-red-500 relative">
-        {/* Red dot at the start */}
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-2 h-2 bg-red-500 rounded-full" />
+      <div className="relative flex items-center">
+        {/* Red dot */}
+        <div className="absolute -left-2 w-2 h-2 bg-red-500 rounded-full shadow-sm" />
+        {/* Red line */}
+        <div className="w-full h-0.5 bg-red-500 shadow-sm" />
+        {/* Time label */}
+        <div className="absolute right-0 -top-2 text-[10px] text-red-500 font-medium px-1 bg-white rounded">
+          {currentTime.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+          })}
+        </div>
       </div>
     </div>
   );
 }
+
+// Also export as default for compatibility
+export default CurrentTimeIndicator;

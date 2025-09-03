@@ -4,7 +4,6 @@
 import { useState } from 'react';
 import { format, parseISO, isSameDay, isToday } from 'date-fns';
 import type { BookingWithLocalTimes, TeamMember } from '@/types/database';
-
 import { CurrentTimeIndicator } from './CurrentTimeIndicator';
 import Image from 'next/image';
 
@@ -24,11 +23,11 @@ interface TimeSlot {
 export function DayView({ bookings, teamMembers, selectedDate }: DayViewProps) {
   const [hoveredSlot, setHoveredSlot] = useState<string | null>(null);
 
-  // Generate 15-minute interval time slots from 5am to 10pm
+  // Generate 15-minute interval time slots from 6am to 9pm
   const generateTimeSlots = (): TimeSlot[] => {
     const slots: TimeSlot[] = [];
-    const startHour = 5;
-    const endHour = 22;
+    const startHour = 6;
+    const endHour = 21;
 
     for (let hour = startHour; hour <= endHour; hour++) {
       for (let minute = 0; minute < 60; minute += 15) {
@@ -50,11 +49,17 @@ export function DayView({ bookings, teamMembers, selectedDate }: DayViewProps) {
   };
 
   const timeSlots = generateTimeSlots();
+  const slotHeight = 20; // Height of each 15-minute slot in pixels
 
   // Filter bookings for the selected date and group by team member
-  const dayBookings = bookings.filter((booking) =>
-    isSameDay(parseISO(booking.start_time_local), selectedDate)
-  );
+  const dayBookings = bookings.filter((booking) => {
+    const bookingDate = booking.booking_date_local || booking.starts_at_local;
+    if (!bookingDate) return false;
+
+    const parsedDate =
+      typeof bookingDate === 'string' ? parseISO(bookingDate) : bookingDate;
+    return isSameDay(parsedDate, selectedDate);
+  });
 
   const bookingsByMember: Record<string, BookingWithLocalTimes[]> = {};
   dayBookings.forEach((booking) => {
@@ -86,26 +91,35 @@ export function DayView({ bookings, teamMembers, selectedDate }: DayViewProps) {
         <div className="flex">
           <div className="w-20 flex-none" />
           {teamMembers.map((member) => (
-            <div key={member.id} className="flex-1 p-4 border-l text-center">
+            <div
+              key={member.id}
+              className="flex-1 p-4 border-l text-center min-w-[180px]"
+            >
               {member.photo ? (
-                <Image
-                  src={member.photo}
-                  alt={`${member.first_name} ${member.last_name}`}
-                  className="w-16 h-16 rounded-full object-cover mx-auto mb-2"
-                  width={64}
-                  height={64}
-                />
-              ) : (
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-bold text-lg mx-auto mb-2">
-                  {member.first_name[0]}
-                  {member.last_name[0]}
+                <div className="flex flex-col items-center">
+                  <Image
+                    src={member.photo}
+                    alt={`${member.first_name} ${member.last_name}`}
+                    width={40}
+                    height={40}
+                    className="rounded-full mb-1"
+                  />
+                  <div className="text-sm font-medium">
+                    {member.first_name} {member.last_name}
+                  </div>
+                  <div className="text-xs text-gray-500">{member.role}</div>
                 </div>
-              )}
-              <div className="text-sm font-medium">
-                {member.first_name} {member.last_name}
-              </div>
-              {member.role && (
-                <div className="text-xs text-gray-500 mt-1">{member.role}</div>
+              ) : (
+                <div className="flex flex-col items-center">
+                  <div className="w-10 h-10 rounded-full bg-purple-500 text-white flex items-center justify-center mb-1">
+                    {member.first_name[0]}
+                    {member.last_name[0]}
+                  </div>
+                  <div className="text-sm font-medium">
+                    {member.first_name} {member.last_name}
+                  </div>
+                  <div className="text-xs text-gray-500">{member.role}</div>
+                </div>
               )}
             </div>
           ))}
@@ -113,104 +127,83 @@ export function DayView({ bookings, teamMembers, selectedDate }: DayViewProps) {
       </div>
 
       {/* Time grid */}
-      <div className="flex-1 overflow-y-auto relative">
-        <div className="relative min-h-full">
-          {/* Current time indicator - only show if viewing today */}
-          {isToday(selectedDate) && (
-            <CurrentTimeIndicator
-              startHour={5}
-              endHour={22}
-              pixelsPerMinute={20 / 15}
-            />
-          )}
-
-          {/* Time slots */}
-          {timeSlots.map((slot) => (
-            <div
-              key={`${slot.hour}-${slot.minute}`}
-              className="flex"
-              style={{ height: '20px' }}
-            >
-              {/* Time label */}
-              <div className="w-20 flex-none px-2 text-xs text-gray-500 relative">
-                {slot.label && (
-                  <div className="absolute -top-3 right-2 text-right whitespace-pre-line leading-tight">
-                    {slot.label}
-                  </div>
-                )}
+      <div className="flex-1 overflow-auto">
+        <div className="flex relative">
+          {/* Time column */}
+          <div className="w-20 flex-none">
+            {timeSlots.map((slot, index) => (
+              <div
+                key={`time-${index}`}
+                className="border-b border-gray-200 text-right pr-2 text-xs text-gray-600"
+                style={{
+                  height: `${slotHeight}px`,
+                  lineHeight: `${slotHeight}px`,
+                }}
+              >
+                {slot.label}
               </div>
+            ))}
+          </div>
 
-              {/* Team member columns */}
-              {teamMembers.map((member) => {
-                const slotKey = getSlotKey(slot, member.id);
-                const isHovered = hoveredSlot === slotKey;
-                const isOnHour = slot.minute === 0;
+          {/* Team member columns */}
+          {teamMembers.map((member) => {
+            const memberBookings = bookingsByMember[member.id] || [];
 
-                return (
-                  <div
-                    key={`${slot.hour}-${slot.minute}-${member.id}`}
-                    className={`
-                      flex-1 border-l relative cursor-default
-                      ${
-                        isOnHour
-                          ? 'border-t border-gray-300'
-                          : 'border-t border-gray-100'
-                      }
-                      hover:bg-blue-50 transition-colors
-                    `}
-                    onMouseEnter={() => handleSlotHover(slot, member.id)}
-                    onMouseLeave={handleSlotLeave}
-                  >
-                    {/* Hover time tooltip */}
-                    {isHovered && (
-                      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
-                        <div className="bg-blue-600 text-white px-2 py-1 rounded text-xs font-medium whitespace-nowrap shadow-lg">
-                          {slot.display}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+            return (
+              <div
+                key={member.id}
+                className="flex-1 relative border-l min-w-[180px]"
+              >
+                {/* Background grid */}
+                {timeSlots.map((slot, index) => {
+                  const isHovered = hoveredSlot === getSlotKey(slot, member.id);
+                  const isHourMark = slot.minute === 0;
 
-          {/* Booking blocks overlay */}
-          <div className="absolute inset-0 pointer-events-none">
-            {teamMembers.map((member, memberIndex) => {
-              const memberBookings = bookingsByMember[member.id] || [];
-              const columnWidth =
-                (100 - (80 / window.innerWidth) * 100) / teamMembers.length;
-              const leftPosition =
-                80 +
-                memberIndex * ((window.innerWidth - 80) / teamMembers.length);
+                  return (
+                    <div
+                      key={`slot-${index}`}
+                      className={`border-b ${
+                        isHourMark ? 'border-gray-300' : 'border-gray-200'
+                      } ${isHovered ? 'bg-gray-50' : ''}`}
+                      style={{ height: `${slotHeight}px` }}
+                      onMouseEnter={() => handleSlotHover(slot, member.id)}
+                      onMouseLeave={handleSlotLeave}
+                      title={slot.display}
+                    />
+                  );
+                })}
 
-              return (
-                <div
-                  key={member.id}
-                  className="absolute top-0 h-full"
-                  style={{
-                    left: `${leftPosition}px`,
-                    width: `${columnWidth}%`,
-                  }}
-                >
+                {/* Bookings overlay */}
+                <div className="absolute inset-0 pointer-events-none">
                   {memberBookings.map((booking) => {
-                    const bookingDate = parseISO(booking.start_time_local);
-                    const bookingHour = bookingDate.getHours();
-                    const bookingMinute = bookingDate.getMinutes();
+                    // Parse the booking start time
+                    const startTimeStr = booking.start_time_local;
+                    if (!startTimeStr) return null;
 
-                    // Calculate position based on 15-minute slots (20px each)
+                    // Parse time string (HH:MM:SS format)
+                    const [hourStr, minuteStr] = startTimeStr.split(':');
+                    const bookingHour = parseInt(hourStr, 10);
+                    const bookingMinute = parseInt(minuteStr, 10);
+
+                    // Find the corresponding slot index
                     const slotIndex = timeSlots.findIndex(
                       (slot) =>
                         slot.hour === bookingHour &&
                         slot.minute === bookingMinute
                     );
 
-                    if (slotIndex === -1) return null;
+                    if (slotIndex === -1) {
+                      console.warn(
+                        `No slot found for booking at ${startTimeStr}`,
+                        booking
+                      );
+                      return null;
+                    }
 
-                    const topPosition = slotIndex * 20;
+                    // Calculate position and height
+                    const topPosition = slotIndex * slotHeight;
                     const duration = booking.duration || 60; // default to 60 minutes
-                    const height = (duration / 15) * 20; // 20px per 15 minutes
+                    const height = (duration / 15) * slotHeight; // 15 minutes per slot
 
                     return (
                       <div
@@ -218,45 +211,82 @@ export function DayView({ bookings, teamMembers, selectedDate }: DayViewProps) {
                         className="absolute left-1 right-1 pointer-events-auto"
                         style={{
                           top: `${topPosition}px`,
-                          height: `${height}px`,
+                          height: `${height - 2}px`, // Subtract 2px for spacing
                         }}
                       >
-                        <BookingBlockSimple booking={booking} />
+                        <BookingBlock booking={booking} />
                       </div>
                     );
                   })}
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            );
+          })}
         </div>
+
+        {/* Current time indicator - positioned over the entire grid */}
+        {isToday(selectedDate) && timeSlots && timeSlots.length > 0 && (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{ left: '80px' }}
+          >
+            <CurrentTimeIndicator
+              timeSlots={timeSlots}
+              slotHeight={slotHeight}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// Simplified booking block component
-function BookingBlockSimple({ booking }: { booking: BookingWithLocalTimes }) {
-  const startTime = format(parseISO(booking.start_time_local), 'h:mm a');
+// Booking block component
+function BookingBlock({ booking }: { booking: BookingWithLocalTimes }) {
+  const startTime = booking.start_time_local
+    ? format(parseISO(`2024-01-01T${booking.start_time_local}`), 'h:mm a')
+    : '';
+
   const statusColors = {
-    confirmed: 'bg-green-100 border-green-300 text-green-900',
-    pending: 'bg-yellow-100 border-yellow-300 text-yellow-900',
-    cancelled: 'bg-red-100 border-red-300 text-red-900',
-    completed: 'bg-blue-100 border-blue-300 text-blue-900',
-    no_show: 'bg-gray-100 border-gray-300 text-gray-900',
+    confirmed:
+      'bg-green-100 border-green-300 text-green-900 hover:bg-green-200',
+    pending:
+      'bg-yellow-100 border-yellow-300 text-yellow-900 hover:bg-yellow-200',
+    cancelled: 'bg-red-100 border-red-300 text-red-900 hover:bg-red-200',
+    completed: 'bg-blue-100 border-blue-300 text-blue-900 hover:bg-blue-200',
+    no_show: 'bg-gray-100 border-gray-300 text-gray-900 hover:bg-gray-200',
   };
 
-  const bgColor = statusColors[booking.status] || statusColors.pending;
+  const bgColor = statusColors[booking.status] || statusColors.confirmed;
+
+  // Use category color as left border
+  const categoryColor = booking.category_color || '#6B7280';
 
   return (
     <div
-      className={`h-full rounded border ${bgColor} p-1 overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer`}
+      className={`h-full rounded-md border ${bgColor} p-1.5 shadow-sm hover:shadow-md transition-all cursor-pointer overflow-hidden relative`}
+      title={`${booking.client_first_name} ${booking.client_last_name} - ${booking.service_name}`}
+      style={{
+        borderLeftWidth: '3px',
+        borderLeftColor: categoryColor,
+      }}
     >
-      <div className="text-xs font-medium truncate">
-        {booking.client_first_name} {booking.client_last_name}
-      </div>
-      <div className="text-xs opacity-75 truncate">
-        {startTime} • {booking.service_name || 'Service'}
+      <div className="text-xs">
+        <div className="font-semibold truncate">
+          {booking.client_first_name} {booking.client_last_name?.charAt(0)}.
+        </div>
+        <div className="opacity-75 truncate">{startTime}</div>
+        {booking.duration >= 30 && (
+          <div className="opacity-75 truncate text-[10px]">
+            {booking.service_name}
+            {booking.variant_name && ` - ${booking.variant_name}`}
+          </div>
+        )}
+        {booking.duration >= 60 && booking.booking_note && (
+          <div className="opacity-60 truncate text-[10px] italic">
+            Note: {booking.booking_note}
+          </div>
+        )}
       </div>
     </div>
   );

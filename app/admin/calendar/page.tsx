@@ -9,7 +9,6 @@ import { format, startOfWeek, endOfWeek, startOfDay, endOfDay } from 'date-fns';
 
 type ViewMode = 'day' | 'week';
 
-// Extended type to include assignment status
 interface TeamMemberWithStatus extends TeamMember {
   is_assigned: boolean;
   other_shops: string[];
@@ -38,7 +37,6 @@ export default function CalendarPage() {
   // Fetch team members for the selected shop
   const fetchTeamMembersForShop = useCallback(async (shopId: string) => {
     if (shopId === 'all') {
-      // If "all" is selected, fetch all team members
       try {
         setLoadingTeamMembers(true);
         const response = await fetch('/api/admin/team');
@@ -48,7 +46,7 @@ export default function CalendarPage() {
           setAllTeamMembers(
             data.data.map((member: TeamMember) => ({
               ...member,
-              is_assigned: true, // All members are "assigned" when viewing all
+              is_assigned: true,
               other_shops: [],
             }))
           );
@@ -60,7 +58,6 @@ export default function CalendarPage() {
         setLoadingTeamMembers(false);
       }
     } else {
-      // Fetch team members assigned to specific shop
       try {
         setLoadingTeamMembers(true);
         const response = await fetch(`/api/admin/shops/${shopId}/team-members`);
@@ -68,13 +65,11 @@ export default function CalendarPage() {
 
         if (response.ok && data.data) {
           setAllTeamMembers(data.data);
-          // Filter to only show assigned members
           const assignedMembers = data.data.filter(
             (m: TeamMemberWithStatus) => m.is_assigned
           );
           setFilteredTeamMembers(assignedMembers);
 
-          // Reset selected team members if they're not in the new filtered list
           setSelectedTeamMembers((prev) =>
             prev.filter((id) =>
               assignedMembers.some((m: TeamMember) => m.id === id)
@@ -93,7 +88,7 @@ export default function CalendarPage() {
     }
   }, []);
 
-  // Fetch bookings with useCallback to memoize the function
+  // Fetch bookings
   const fetchBookings = useCallback(async () => {
     try {
       setLoading(true);
@@ -134,16 +129,12 @@ export default function CalendarPage() {
   useEffect(() => {
     async function fetchInitialData() {
       try {
-        // Fetch shops
         const shopsRes = await fetch('/api/admin/shops');
         const shopsData = await shopsRes.json();
-        if (shopsData.data) {
+        if (shopsData.data && shopsData.data.length > 0) {
           setShops(shopsData.data);
-          if (shopsData.data.length > 0) {
-            // Set first shop as default
-            const firstShopId = shopsData.data[0].id;
-            setSelectedShop(firstShopId);
-          }
+          const firstShopId = shopsData.data[0].id;
+          setSelectedShop(firstShopId);
         }
       } catch (error) {
         console.error('Error fetching initial data:', error);
@@ -184,12 +175,10 @@ export default function CalendarPage() {
 
   const handleShopChange = (shopId: string) => {
     setSelectedShop(shopId);
-    // Reset team member selection when shop changes
     setShowAllStaff(true);
     setSelectedTeamMembers([]);
   };
 
-  // Determine which team members to display in the calendar
   const displayedTeamMembers = showAllStaff
     ? filteredTeamMembers
     : filteredTeamMembers.filter((m) => selectedTeamMembers.includes(m.id));

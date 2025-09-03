@@ -1,8 +1,7 @@
 // components/calendar/WeekView.tsx
 'use client';
 
-import { useState } from 'react';
-import { format, parseISO, startOfWeek, addDays, isToday } from 'date-fns';
+import { format, startOfWeek, addDays, parseISO, isToday } from 'date-fns';
 import type { BookingWithLocalTimes, TeamMember } from '@/types/database';
 import { CurrentTimeIndicator } from './CurrentTimeIndicator';
 
@@ -24,16 +23,11 @@ export function WeekView({
   teamMembers,
   selectedDate,
 }: WeekViewProps) {
-  const [hoveredSlot, setHoveredSlot] = useState<string | null>(null);
-
-  const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
-  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-
-  // Generate 15-minute interval time slots from 5am to 10pm
+  // Generate 15-minute interval time slots from 6am to 9pm (matching DayView)
   const generateTimeSlots = (): TimeSlot[] => {
     const slots: TimeSlot[] = [];
-    const startHour = 5;
-    const endHour = 22;
+    const startHour = 6;
+    const endHour = 21;
 
     for (let hour = startHour; hour <= endHour; hour++) {
       for (let minute = 0; minute < 60; minute += 15) {
@@ -41,7 +35,7 @@ export function WeekView({
         const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
 
         // Only show label on the hour
-        const label = minute === 0 ? `${displayHour}:00\n${period}` : '';
+        const label = minute === 0 ? `${displayHour}:00 ${period}` : '';
 
         // Display format for hover
         const displayMinute = minute.toString().padStart(2, '0');
@@ -55,76 +49,81 @@ export function WeekView({
   };
 
   const timeSlots = generateTimeSlots();
+  const slotHeight = 20; // Height of each 15-minute slot in pixels (matching DayView)
 
-  // Group bookings by day and team member
-  const bookingsByDayAndMember: Record<
+  // Get the week dates
+  const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 }); // Monday start
+  const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+
+  // Group bookings by team member and date
+  const bookingsByMemberAndDate: Record<
     string,
     Record<string, BookingWithLocalTimes[]>
   > = {};
 
-  bookings.forEach((booking) => {
-    const bookingDate = parseISO(booking.start_time_local);
-    const dayKey = format(bookingDate, 'yyyy-MM-dd');
-    const memberId = booking.team_member_id;
-
-    if (memberId) {
-      if (!bookingsByDayAndMember[dayKey]) {
-        bookingsByDayAndMember[dayKey] = {};
-      }
-      if (!bookingsByDayAndMember[dayKey][memberId]) {
-        bookingsByDayAndMember[dayKey][memberId] = [];
-      }
-      bookingsByDayAndMember[dayKey][memberId].push(booking);
-    }
+  teamMembers.forEach((member) => {
+    bookingsByMemberAndDate[member.id] = {};
+    weekDates.forEach((date) => {
+      const dateKey = format(date, 'yyyy-MM-dd');
+      bookingsByMemberAndDate[member.id][dateKey] = [];
+    });
   });
 
-  const getSlotKey = (slot: TimeSlot, date: Date, memberId: string) => {
-    return `${format(date, 'yyyy-MM-dd')}-${slot.hour}-${
-      slot.minute
-    }-${memberId}`;
-  };
+  bookings.forEach((booking) => {
+    const memberId = booking.team_member_id;
+    if (memberId && bookingsByMemberAndDate[memberId]) {
+      const bookingDate = booking.booking_date_local || booking.starts_at_local;
+      if (bookingDate) {
+        const parsedDate =
+          typeof bookingDate === 'string' ? parseISO(bookingDate) : bookingDate;
+        const dateKey = format(parsedDate, 'yyyy-MM-dd');
 
-  const handleSlotHover = (slot: TimeSlot, date: Date, memberId: string) => {
-    setHoveredSlot(getSlotKey(slot, date, memberId));
-  };
-
-  const handleSlotLeave = () => {
-    setHoveredSlot(null);
-  };
+        if (bookingsByMemberAndDate[memberId][dateKey]) {
+          bookingsByMemberAndDate[memberId][dateKey].push(booking);
+        }
+      }
+    }
+  });
 
   return (
     <div className="h-full flex flex-col">
       {/* Header with days and team members */}
-      <div className="flex-none bg-gray-50 border-b overflow-x-auto">
-        <div className="flex min-w-max">
-          <div className="w-20 flex-none" />
-          {weekDays.map((day) => (
-            <div key={day.toISOString()} className="flex-1 min-w-0">
-              <div
-                className={`
-                  p-2 text-center border-l
-                  ${isToday(day) ? 'bg-blue-50' : ''}
-                `}
-              >
-                <div className="text-sm font-medium">{format(day, 'EEE')}</div>
+      <div className="flex-none bg-gray-50 border-b">
+        <div className="flex">
+          {/* Time column header */}
+          <div className="w-20 flex-none border-r p-2 text-center">
+            <div className="text-xs font-medium text-gray-600">Time</div>
+          </div>
+
+          {/* Day columns */}
+          {weekDates.map((date) => (
+            <div key={date.toISOString()} className="flex-1 border-r">
+              <div className="p-2 text-center border-b bg-white">
                 <div
-                  className={`
-                    text-lg font-bold
-                    ${isToday(day) ? 'text-blue-600' : ''}
-                  `}
+                  className={`text-sm font-medium ${
+                    isToday(date) ? 'text-blue-600' : 'text-gray-900'
+                  }`}
                 >
-                  {format(day, 'd')}
+                  {format(date, 'EEE')}
+                </div>
+                <div
+                  className={`text-lg ${
+                    isToday(date) ? 'text-blue-600 font-bold' : 'text-gray-700'
+                  }`}
+                >
+                  {format(date, 'd')}
                 </div>
               </div>
 
-              {/* Team members for this day */}
-              <div className="flex border-t">
+              {/* Team member headers for each day */}
+              <div className="flex">
                 {teamMembers.map((member) => (
                   <div
-                    key={`${day.toISOString()}-${member.id}`}
-                    className="flex-1 p-2 border-l text-center min-w-[120px]"
+                    key={member.id}
+                    className="flex-1 p-1 text-center border-r last:border-r-0"
+                    style={{ minWidth: `${100 / teamMembers.length}px` }}
                   >
-                    <div className="text-xs font-medium truncate">
+                    <div className="text-xs font-medium text-gray-700 truncate">
                       {member.first_name} {member.last_name[0]}.
                     </div>
                   </div>
@@ -135,123 +134,124 @@ export function WeekView({
         </div>
       </div>
 
-      {/* Time grid */}
-      <div className="flex-1 overflow-auto relative">
-        {/* Current time indicator for today's column */}
-        {weekDays.some((day) => isToday(day)) && (
-          <CurrentTimeIndicator
-            startHour={5}
-            endHour={22}
-            pixelsPerMinute={20 / 15}
-          />
-        )}
-
-        <div className="flex min-w-max">
-          {/* Time labels column */}
+      {/* Time grid with bookings */}
+      <div className="flex-1 overflow-auto">
+        <div className="flex">
+          {/* Time column */}
           <div className="w-20 flex-none">
-            {timeSlots.map((slot) => (
+            {timeSlots.map((slot, index) => (
               <div
-                key={`time-${slot.hour}-${slot.minute}`}
-                className="relative"
-                style={{ height: '20px' }}
+                key={`time-${index}`}
+                className="border-b border-r border-gray-200 text-right pr-2 text-xs text-gray-600"
+                style={{
+                  height: `${slotHeight}px`,
+                  lineHeight: `${slotHeight}px`,
+                }}
               >
-                {slot.label && (
-                  <div className="absolute -top-3 right-2 text-xs text-gray-500 text-right whitespace-pre-line leading-tight">
-                    {slot.label}
-                  </div>
-                )}
+                {slot.label}
               </div>
             ))}
           </div>
 
-          {/* Days columns */}
-          {weekDays.map((day) => (
-            <div key={day.toISOString()} className="flex-1 min-w-0 border-l">
-              <div className="flex h-full">
-                {teamMembers.map((member) => (
-                  <div
-                    key={`${day.toISOString()}-${member.id}-column`}
-                    className="flex-1 min-w-[120px] border-l relative"
-                  >
-                    {/* Time slots for this day/member */}
-                    {timeSlots.map((slot) => {
-                      const slotKey = getSlotKey(slot, day, member.id);
-                      const isHovered = hoveredSlot === slotKey;
-                      const isOnHour = slot.minute === 0;
+          {/* Day columns with team member sub-columns */}
+          {weekDates.map((date) => {
+            const dateKey = format(date, 'yyyy-MM-dd');
+            const showCurrentTime = isToday(date);
 
-                      return (
-                        <div
-                          key={`${slot.hour}-${slot.minute}`}
-                          className={`
-                            relative cursor-default
-                            ${
-                              isOnHour
-                                ? 'border-t border-gray-300'
-                                : 'border-t border-gray-100'
-                            }
-                            hover:bg-blue-50 transition-colors
-                          `}
-                          style={{ height: '20px' }}
-                          onMouseEnter={() =>
-                            handleSlotHover(slot, day, member.id)
-                          }
-                          onMouseLeave={handleSlotLeave}
-                        >
-                          {/* Hover time tooltip */}
-                          {isHovered && (
-                            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
-                              <div className="bg-blue-600 text-white px-2 py-1 rounded text-xs font-medium whitespace-nowrap shadow-lg">
-                                {slot.display}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+            return (
+              <div
+                key={date.toISOString()}
+                className="flex-1 flex border-r relative"
+              >
+                {teamMembers.map((member, memberIndex) => {
+                  const memberBookings =
+                    bookingsByMemberAndDate[member.id]?.[dateKey] || [];
 
-                    {/* Bookings for this day/member */}
-                    {(() => {
-                      const dayKey = format(day, 'yyyy-MM-dd');
-                      const memberBookings =
-                        bookingsByDayAndMember[dayKey]?.[member.id] || [];
-
-                      return memberBookings.map((booking) => {
-                        const bookingDate = parseISO(booking.start_time_local);
-                        const bookingHour = bookingDate.getHours();
-                        const bookingMinute = bookingDate.getMinutes();
-
-                        // Calculate position based on 15-minute slots (20px each)
-                        const slotIndex = timeSlots.findIndex(
-                          (slot) =>
-                            slot.hour === bookingHour &&
-                            slot.minute === bookingMinute
-                        );
-
-                        if (slotIndex === -1) return null;
-
-                        const topPosition = slotIndex * 20;
-                        const duration = booking.duration || 60; // default to 60 minutes
-                        const height = (duration / 15) * 20; // 20px per 15 minutes
+                  return (
+                    <div
+                      key={member.id}
+                      className={`flex-1 relative ${
+                        memberIndex > 0 ? 'border-l' : ''
+                      }`}
+                      style={{ minWidth: `${100 / teamMembers.length}px` }}
+                    >
+                      {/* Background grid */}
+                      {timeSlots.map((slot, index) => {
+                        const isHourMark = slot.minute === 0;
 
                         return (
                           <div
-                            key={booking.id}
-                            className="absolute left-1 right-1 z-10 pointer-events-auto"
-                            style={{
-                              top: `${topPosition}px`,
-                              height: `${height}px`,
-                            }}
-                          >
-                            <WeekViewBookingBlock booking={booking} />
-                          </div>
+                            key={`slot-${index}`}
+                            className={`border-b ${
+                              isHourMark ? 'border-gray-300' : 'border-gray-200'
+                            }`}
+                            style={{ height: `${slotHeight}px` }}
+                          />
                         );
-                      });
-                    })()}
+                      })}
+
+                      {/* Bookings overlay */}
+                      <div className="absolute inset-0 pointer-events-none">
+                        {memberBookings.map((booking) => {
+                          // Parse the booking start time
+                          const startTimeStr = booking.start_time_local;
+                          if (!startTimeStr) return null;
+
+                          // Parse time string (HH:MM:SS format)
+                          const [hourStr, minuteStr] = startTimeStr.split(':');
+                          const bookingHour = parseInt(hourStr, 10);
+                          const bookingMinute = parseInt(minuteStr, 10);
+
+                          // Find the corresponding slot index
+                          const slotIndex = timeSlots.findIndex(
+                            (slot) =>
+                              slot.hour === bookingHour &&
+                              slot.minute === bookingMinute
+                          );
+
+                          if (slotIndex === -1) {
+                            console.warn(
+                              `No slot found for booking at ${startTimeStr}`,
+                              booking
+                            );
+                            return null;
+                          }
+
+                          // Calculate position and height
+                          const topPosition = slotIndex * slotHeight;
+                          const duration = booking.duration || 60;
+                          const height = (duration / 15) * slotHeight;
+
+                          return (
+                            <div
+                              key={booking.id}
+                              className="absolute left-0.5 right-0.5 pointer-events-auto"
+                              style={{
+                                top: `${topPosition}px`,
+                                height: `${height - 1}px`, // Subtract 1px for spacing
+                              }}
+                            >
+                              <WeekViewBookingBlock booking={booking} />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Current time indicator for today */}
+                {showCurrentTime && timeSlots && timeSlots.length > 0 && (
+                  <div className="absolute inset-0 pointer-events-none">
+                    <CurrentTimeIndicator
+                      timeSlots={timeSlots}
+                      slotHeight={slotHeight}
+                    />
                   </div>
-                ))}
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
@@ -260,31 +260,75 @@ export function WeekView({
 
 // Compact booking block for week view
 function WeekViewBookingBlock({ booking }: { booking: BookingWithLocalTimes }) {
+  const startTime = booking.start_time_local
+    ? format(parseISO(`2024-01-01T${booking.start_time_local}`), 'h:mm')
+    : '';
+
   const statusColors = {
-    confirmed: 'bg-green-100 border-green-300 text-green-900',
-    pending: 'bg-yellow-100 border-yellow-300 text-yellow-900',
-    cancelled: 'bg-red-100 border-red-300 text-red-900',
-    completed: 'bg-blue-100 border-blue-300 text-blue-900',
-    no_show: 'bg-gray-100 border-gray-300 text-gray-900',
+    confirmed:
+      'bg-green-100 border-green-400 text-green-900 hover:bg-green-200',
+    completed: 'bg-blue-100 border-blue-400 text-blue-900 hover:bg-blue-200',
+    cancelled: 'bg-red-100 border-red-400 text-red-900 hover:bg-red-200',
+    no_show: 'bg-gray-100 border-gray-400 text-gray-900 hover:bg-gray-200',
+    pending:
+      'bg-yellow-100 border-yellow-400 text-yellow-900 hover:bg-yellow-200',
   };
 
-  const bgColor = statusColors[booking.status] || statusColors.pending;
+  const bgColor = statusColors[booking.status] || statusColors.confirmed;
+  const categoryColor = booking.category_color || '#6B7280';
+
+  // Determine what to show based on duration
+  const showTime = booking.duration >= 30;
+  const showService = booking.duration >= 45;
 
   return (
     <div
-      className={`h-full rounded border ${bgColor} p-1 overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer`}
-      title={`${booking.client_first_name} ${booking.client_last_name} - ${
-        booking.service_name || 'Service'
-      }`}
+      className={`h-full rounded border ${bgColor} px-0.5 shadow-sm hover:shadow-md transition-all cursor-pointer overflow-hidden relative group`}
+      title={`${booking.client_first_name} ${booking.client_last_name}
+${booking.service_name}${
+        booking.variant_name ? ` - ${booking.variant_name}` : ''
+      }
+${startTime} (${booking.duration} min)
+${booking.booking_note ? `Note: ${booking.booking_note}` : ''}`}
+      style={{
+        borderLeftWidth: '2px',
+        borderLeftColor: categoryColor,
+        fontSize: '10px',
+      }}
     >
-      <div className="text-xs font-medium truncate">
-        {booking.client_first_name} {booking.client_last_name}.
-      </div>
-      {booking.duration && booking.duration >= 45 && (
-        <div className="text-xs opacity-75 truncate">
-          {format(parseISO(booking.start_time_local), 'h:mma')}
+      {/* Minimal display for small slots */}
+      <div className="text-[10px] leading-tight">
+        <div className="font-semibold truncate">
+          {booking.client_first_name} {booking.client_last_name?.charAt(0)}.
         </div>
-      )}
+        {showTime && <div className="opacity-75 truncate">{startTime}</div>}
+        {showService && (
+          <div className="opacity-60 truncate">{booking.service_name}</div>
+        )}
+      </div>
+
+      {/* Hover overlay with full details */}
+      <div className="absolute inset-0 bg-black/85 text-white p-1 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-center text-[10px] leading-tight">
+        <div className="font-semibold">
+          {booking.client_first_name} {booking.client_last_name}
+        </div>
+        <div>{booking.service_name}</div>
+        {booking.variant_name && (
+          <div className="text-[9px]">({booking.variant_name})</div>
+        )}
+        <div className="mt-0.5">
+          {startTime} • {booking.duration}min
+        </div>
+        {booking.client_phone && (
+          <div className="text-[9px]">📞 {booking.client_phone}</div>
+        )}
+        <div className="mt-0.5">💰 ${booking.price}</div>
+        {booking.booking_note && (
+          <div className="text-[9px] italic mt-0.5">
+            Note: {booking.booking_note}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

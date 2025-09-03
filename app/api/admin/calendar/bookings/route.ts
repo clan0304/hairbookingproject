@@ -32,7 +32,7 @@ export async function GET(req: Request) {
     let query = supabaseAdmin
       .from('bookings_with_local_times')
       .select('*')
-      .in('status', ['confirmed', 'completed']);
+      .in('status', ['confirmed', 'completed']); // Only show confirmed and completed bookings
 
     // Add date range filter
     if (startDate && endDate) {
@@ -53,7 +53,7 @@ export async function GET(req: Request) {
     }
 
     // Order by start time
-    query = query.order('starts_at_local');
+    query = query.order('start_time_local');
 
     const { data, error } = await query;
 
@@ -62,7 +62,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    return NextResponse.json({ data });
+    return NextResponse.json({ data: data || [] });
   } catch (error) {
     console.error('API error:', error);
     return NextResponse.json(
