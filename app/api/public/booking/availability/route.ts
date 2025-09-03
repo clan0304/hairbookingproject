@@ -50,6 +50,14 @@ interface TimeSlot {
   slot_id: string;
 }
 
+interface TeamMemberService {
+  team_member_id: string;
+}
+
+interface Service {
+  base_duration: number;
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -72,7 +80,7 @@ export async function GET(req: Request) {
     // Get team member IDs (existing logic)
     let teamMemberIds: string[] = [];
     if (teamMemberId === 'any' && serviceId) {
-      // ... existing logic to get team members
+      // Get team members who provide this service
       const { data: availableProviders } = await supabase
         .from('team_member_services')
         .select('team_member_id')
@@ -80,7 +88,9 @@ export async function GET(req: Request) {
         .eq('is_available', true);
 
       const serviceProviderIds =
-        availableProviders?.map((p: any) => p.team_member_id) || [];
+        (availableProviders as TeamMemberService[] | null)?.map(
+          (p: TeamMemberService) => p.team_member_id
+        ) || [];
 
       if (serviceProviderIds.length > 0) {
         const { data: shopAvailability } = await supabase
@@ -92,7 +102,14 @@ export async function GET(req: Request) {
           .eq('is_available', true);
 
         const uniqueIds = new Set(
-          shopAvailability?.map((slot: any) => slot.team_member_id) || []
+          (
+            shopAvailability as
+              | Pick<AvailabilitySlot, 'team_member_id'>[]
+              | null
+          )?.map(
+            (slot: Pick<AvailabilitySlot, 'team_member_id'>) =>
+              slot.team_member_id
+          ) || []
         );
         teamMemberIds = Array.from(uniqueIds);
       }
@@ -120,8 +137,8 @@ export async function GET(req: Request) {
         .eq('id', serviceId)
         .single();
 
-      if (service?.base_duration) {
-        serviceDuration = service.base_duration;
+      if ((service as Service | null)?.base_duration) {
+        serviceDuration = (service as Service).base_duration;
       }
     }
 
@@ -166,8 +183,9 @@ export async function GET(req: Request) {
       .gt('expires_at', new Date().toISOString())
       .neq('session_id', currentSessionId || 'none');
 
-    const bookings: Booking[] = existingBookings || [];
-    const reservations: Reservation[] = activeReservations || [];
+    const bookings: Booking[] = (existingBookings as Booking[] | null) || [];
+    const reservations: Reservation[] =
+      (activeReservations as Reservation[] | null) || [];
 
     // Generate time slots
     const timeSlots: TimeSlot[] = [];

@@ -43,7 +43,6 @@ export default function BookingPage() {
     clientName: '',
     clientEmail: '',
     clientPhone: '',
-    clientNote: '',
   });
 
   // Memoize fetchShopDetails with useCallback
@@ -135,11 +134,7 @@ export default function BookingPage() {
           bookingState.selectedTime !== null
         );
       case 'review':
-        return !!(
-          bookingState.clientName &&
-          bookingState.clientEmail &&
-          bookingState.clientPhone
-        );
+        return !!(bookingState.clientName && bookingState.clientEmail);
       default:
         return true;
     }

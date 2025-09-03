@@ -205,5 +205,4 @@ export interface BookingFlowState {
   clientName: string;
   clientEmail: string;
   clientPhone: string;
-  clientNote?: string; // Only special requests remain optional
 }

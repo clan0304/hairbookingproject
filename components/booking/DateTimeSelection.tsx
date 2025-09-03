@@ -1,9 +1,9 @@
 // components/booking/DateTimeSelection.tsx
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Card } from '@/components/ui/card';
-import { ChevronLeft, ChevronRight, User } from 'lucide-react';
+import { ChevronLeft, ChevronRight, User, AlertCircle } from 'lucide-react';
 import { format, addDays, startOfWeek, addWeeks, subWeeks } from 'date-fns';
 import type { BookingFlowState } from '@/types/database';
 
@@ -39,8 +39,11 @@ export function DateTimeSelection({
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentWeek, setCurrentWeek] = useState(new Date());
+  const [sessionId] = useState(() => crypto.randomUUID()); // Unique session ID for this booking
+  const [reservationExpiry, setReservationExpiry] = useState<Date | null>(null);
+  const reservationTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Memoize fetchAvailableSlots with useCallback
+  // Fetch available slots
   const fetchAvailableSlots = useCallback(async () => {
     if (!selectedDate || !teamMemberId || !bookingState.serviceId) {
       return;
@@ -54,7 +57,8 @@ export function DateTimeSelection({
           `team_member_id=${teamMemberId}&` +
           `service_id=${bookingState.serviceId}&` +
           `date=${dateStr}&` +
-          `shop_id=${shopId}`
+          `shop_id=${shopId}&` +
+          `session_id=${sessionId}` // Pass session ID to exclude own reservations
       );
 
       if (!response.ok) {
@@ -71,14 +75,92 @@ export function DateTimeSelection({
     } finally {
       setLoading(false);
     }
-  }, [selectedDate, teamMemberId, bookingState.serviceId, shopId]);
+  }, [selectedDate, teamMemberId, bookingState.serviceId, shopId, sessionId]);
 
   useEffect(() => {
     fetchAvailableSlots();
   }, [fetchAvailableSlots]);
 
+  // Create reservation when time is selected
+  const createReservation = async (slot: TimeSlot) => {
+    try {
+      const response = await fetch('/api/public/booking/reserve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          team_member_id: slot.team_member_id,
+          shop_id: shopId,
+          service_id: bookingState.serviceId,
+          date: format(selectedDate, 'yyyy-MM-dd'),
+          start_time: slot.time,
+          duration: serviceDuration,
+          session_id: sessionId,
+        }),
+      });
+
+      if (response.ok) {
+        const { data } = await response.json();
+        const expiryDate = new Date(data.expires_at);
+        setReservationExpiry(expiryDate);
+
+        // Start countdown timer
+        startReservationTimer(expiryDate);
+      }
+    } catch (error) {
+      console.error('Error creating reservation:', error);
+    }
+  };
+
+  // Start reservation expiry timer
+  const startReservationTimer = (expiryDate: Date) => {
+    // Clear existing timer
+    if (reservationTimerRef.current) {
+      clearInterval(reservationTimerRef.current);
+    }
+
+    // Update timer every second
+    reservationTimerRef.current = setInterval(() => {
+      const now = new Date();
+      if (now >= expiryDate) {
+        // Reservation expired
+        clearInterval(reservationTimerRef.current!);
+        setReservationExpiry(null);
+        // Clear selected time
+        onUpdate({
+          ...bookingState,
+          selectedTime: null,
+        });
+        // Refresh available slots
+        fetchAvailableSlots();
+      }
+    }, 1000);
+  };
+
+  // Clean up reservation on unmount or when changing date/time
+  useEffect(() => {
+    return () => {
+      if (reservationTimerRef.current) {
+        clearInterval(reservationTimerRef.current);
+      }
+      // Release reservation when component unmounts
+      if (sessionId) {
+        fetch(`/api/public/booking/reserve?session_id=${sessionId}`, {
+          method: 'DELETE',
+        });
+      }
+    };
+  }, [sessionId]);
+
   const handleDateSelect = (date: Date) => {
+    // Release current reservation if changing date
+    if (bookingState.selectedTime && sessionId) {
+      fetch(`/api/public/booking/reserve?session_id=${sessionId}`, {
+        method: 'DELETE',
+      });
+    }
+
     setSelectedDate(date);
+    setReservationExpiry(null);
     onUpdate({
       ...bookingState,
       selectedDate: date,
@@ -86,24 +168,59 @@ export function DateTimeSelection({
     });
   };
 
-  const handleTimeSelect = (slot: TimeSlot) => {
+  const handleTimeSelect = async (slot: TimeSlot) => {
+    // Create reservation for this slot
+    await createReservation(slot);
+
     onUpdate({
       ...bookingState,
       selectedTime: slot.display_time,
     });
   };
 
+  // Calculate remaining time for reservation
+  const getTimeRemaining = () => {
+    if (!reservationExpiry) return null;
+
+    const now = new Date();
+    const diff = reservationExpiry.getTime() - now.getTime();
+
+    if (diff <= 0) return null;
+
+    const minutes = Math.floor(diff / 60000);
+    const seconds = Math.floor((diff % 60000) / 1000);
+
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
   // Generate week dates for horizontal date selector
-  const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 }); // Start on Monday
+  const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 });
   const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
-  // Navigation functions
   const goToPreviousWeek = () => setCurrentWeek(subWeeks(currentWeek, 1));
   const goToNextWeek = () => setCurrentWeek(addWeeks(currentWeek, 1));
 
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold">Select time</h2>
+
+      {/* Reservation Timer Alert */}
+      {reservationExpiry && bookingState.selectedTime && (
+        <Card className="p-4 bg-amber-50 border-amber-200">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-amber-800">
+                Time slot reserved
+              </p>
+              <p className="text-xs text-amber-700 mt-1">
+                Complete your booking within {getTimeRemaining()} or this slot
+                will be released
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Professional Info Bar */}
       {bookingState.teamMemberName && (
@@ -114,9 +231,6 @@ export function DateTimeSelection({
             </div>
             <span className="font-medium">{bookingState.teamMemberName}</span>
           </div>
-          <button className="text-sm text-purple-600 hover:text-purple-700">
-            Change
-          </button>
         </div>
       )}
 
@@ -143,7 +257,7 @@ export function DateTimeSelection({
         </div>
       </div>
 
-      {/* Horizontal Date Selector */}
+      {/* Date Selector */}
       <div className="grid grid-cols-7 gap-2">
         {weekDates.map((date, index) => {
           const isSelected =
@@ -170,7 +284,6 @@ export function DateTimeSelection({
                 ${isToday && !isSelected ? 'ring-2 ring-purple-200' : ''}
               `}
             >
-              {/* Day number - large and bold */}
               <div
                 className={`text-2xl font-bold mb-1 ${
                   isSelected
@@ -182,8 +295,6 @@ export function DateTimeSelection({
               >
                 {dayNumber}
               </div>
-
-              {/* Day name - smaller text below */}
               <div
                 className={`text-xs ${
                   isSelected ? 'text-purple-100' : 'text-gray-500'
@@ -191,8 +302,6 @@ export function DateTimeSelection({
               >
                 {dayName}
               </div>
-
-              {/* Today indicator */}
               {isToday && (
                 <div
                   className={`absolute top-1 right-1 w-2 h-2 rounded-full ${

@@ -1,7 +1,7 @@
 // components/booking/BookingConfirmation.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -31,11 +31,25 @@ export function BookingConfirmation({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    createBooking();
-  }, []);
+  // Helper function to convert 12-hour time to 24-hour format
+  const convertTo24Hour = (time12h: string): string => {
+    const [time, modifier] = time12h.split(' ');
+    const timeParts = time.split(':');
+    let hours = timeParts[0];
+    const minutes = timeParts[1];
 
-  const createBooking = async () => {
+    if (hours === '12') {
+      hours = '00';
+    }
+
+    if (modifier?.toLowerCase() === 'pm') {
+      hours = String(parseInt(hours, 10) + 12);
+    }
+
+    return `${hours}:${minutes || '00'}`;
+  };
+
+  const createBooking = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -55,7 +69,6 @@ export function BookingConfirmation({
           : bookingState.selectedTime?.replace(' ', '').replace('am', ''),
         duration: bookingState.serviceDuration,
         price: bookingState.teamMemberPrice,
-        booking_note: bookingState.clientNote || null,
       };
 
       const response = await fetch('/api/public/booking/create', {
@@ -79,23 +92,11 @@ export function BookingConfirmation({
     } finally {
       setLoading(false);
     }
-  };
+  }, [bookingState, shopId]); // Include all dependencies used in the function
 
-  // Helper function to convert 12-hour time to 24-hour format
-  const convertTo24Hour = (time12h: string): string => {
-    const [time, modifier] = time12h.split(' ');
-    let [hours, minutes] = time.split(':');
-
-    if (hours === '12') {
-      hours = '00';
-    }
-
-    if (modifier?.toLowerCase() === 'pm') {
-      hours = String(parseInt(hours, 10) + 12);
-    }
-
-    return `${hours}:${minutes || '00'}`;
-  };
+  useEffect(() => {
+    createBooking();
+  }, [createBooking]); // Now properly includes createBooking as a dependency
 
   if (loading) {
     return (

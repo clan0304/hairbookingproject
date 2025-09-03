@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createServerClient } from '@/lib/supabase/server';
+import { addMinutes, format } from 'date-fns';
 
 export async function POST(req: Request) {
   try {
@@ -40,7 +41,8 @@ export async function POST(req: Request) {
       !body.booking_date ||
       !body.start_time ||
       !body.duration ||
-      !body.price
+      body.price === undefined ||
+      body.price === null
     ) {
       return NextResponse.json(
         { error: 'Missing required booking information' },
@@ -48,37 +50,104 @@ export async function POST(req: Request) {
       );
     }
 
-    // Create booking using the Supabase function
-    const { data, error } = await supabase.rpc('create_booking_from_local', {
-      p_client_id: client.id, // Use the authenticated user's client ID
-      p_team_member_id: body.team_member_id,
-      p_shop_id: body.shop_id,
-      p_service_id: body.service_id,
-      p_booking_date: body.booking_date,
-      p_start_time: body.start_time,
-      p_duration: body.duration,
-      p_price: body.price,
-      p_variant_id: body.variant_id || null,
-      p_booking_note: body.booking_note || null, // Optional special requests
-    });
-
-    if (error) {
-      console.error('Booking creation error:', error);
-      return NextResponse.json({ error: error.message }, { status: 400 });
+    // Ensure start_time is in proper format (HH:mm:ss)
+    let formattedStartTime = body.start_time;
+    if (!formattedStartTime.includes(':')) {
+      formattedStartTime = `${formattedStartTime}:00`;
+    }
+    if (formattedStartTime.split(':').length === 2) {
+      formattedStartTime = `${formattedStartTime}:00`;
     }
 
-    // Get the created booking details
-    const { data: booking } = await supabase
-      .from('bookings_with_local_times')
-      .select('*')
-      .eq('id', data)
+    // Calculate end time based on start time and duration
+    const [hours, minutes] = formattedStartTime.split(':').map(Number);
+    const startDate = new Date();
+    startDate.setHours(hours, minutes, 0, 0);
+    const endDate = addMinutes(startDate, body.duration);
+    const endTime = format(endDate, 'HH:mm:ss');
+
+    // Generate booking number (format: BK-YYYYMMDD-XXXX)
+    const dateStr = body.booking_date.replace(/-/g, '');
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    const bookingNumber = `BK-${dateStr}-${randomNum}`;
+
+    // Insert directly into bookings table
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .insert({
+        booking_number: bookingNumber,
+        client_id: client.id,
+        team_member_id: body.team_member_id,
+        shop_id: body.shop_id,
+        service_id: body.service_id,
+        variant_id: body.variant_id || null,
+        booking_date: body.booking_date,
+        start_time: formattedStartTime,
+        end_time: endTime,
+        duration: body.duration,
+        price: body.price,
+        status: 'confirmed',
+        booking_note: body.booking_note || null,
+      })
+      .select()
+      .single();
+
+    if (bookingError) {
+      console.error('Booking creation error:', bookingError);
+      return NextResponse.json(
+        { error: bookingError.message },
+        { status: 400 }
+      );
+    }
+
+    // Release any temporary reservations for this session
+    if (body.session_id) {
+      await supabase
+        .from('booking_reservations')
+        .delete()
+        .eq('session_id', body.session_id);
+    }
+
+    // Get the created booking details with additional info
+    const { data: bookingDetails } = await supabase
+      .from('bookings')
+      .select(
+        `
+        *,
+        clients!inner (
+          first_name,
+          last_name,
+          email,
+          phone
+        ),
+        team_members!inner (
+          first_name,
+          last_name
+        ),
+        services!inner (
+          name
+        ),
+        shops!inner (
+          name,
+          address
+        )
+      `
+      )
+      .eq('id', booking.id)
       .single();
 
     // TODO: Send confirmation email to the client
     // You can use a service like SendGrid, Resend, or Supabase Edge Functions
 
     return NextResponse.json({
-      data: booking,
+      data: {
+        ...booking,
+        booking_number: bookingNumber,
+        // Include additional details if needed
+        client_name: bookingDetails?.clients?.first_name,
+        team_member_name: bookingDetails?.team_members?.first_name,
+        service_name: bookingDetails?.services?.name,
+      },
       message: 'Booking confirmed successfully',
     });
   } catch (error) {
