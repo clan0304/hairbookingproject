@@ -224,9 +224,7 @@ export default function TeamPage() {
           </>
         )}
 
-        {activeTab === 'shifts' && (
-          <AvailabilityTab teamMembers={teamMembers} />
-        )}
+        {activeTab === 'shifts' && <AvailabilityTab />}
 
         {activeTab === 'timesheets' && (
           <div className="bg-white rounded-lg shadow p-12 text-center">
