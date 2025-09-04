@@ -98,7 +98,7 @@ export function CalendarGrid({
 
     // Calculate position from 6:00 AM
     const minutesFrom6AM = Math.max(0, (startHour - 6) * 60 + startMinute);
-    const top = (minutesFrom6AM / 30) * SLOT_HEIGHT + HEADER_HEIGHT;
+    const top = (minutesFrom6AM / 30) * SLOT_HEIGHT;
 
     // Calculate height based on duration
     const height = Math.max(
@@ -240,7 +240,6 @@ export function CalendarGrid({
             className="absolute top-0 left-0"
             style={{
               width: `${TIME_COLUMN_WIDTH}px`,
-              paddingTop: `${HEADER_HEIGHT}px`,
             }}
           >
             {TIME_SLOTS.map((time) => (
@@ -264,14 +263,10 @@ export function CalendarGrid({
             style={{
               left: `${TIME_COLUMN_WIDTH}px`,
               right: 0,
-              paddingTop: `${HEADER_HEIGHT}px`,
             }}
           >
             {/* Grid background */}
-            <div
-              className="absolute inset-0"
-              style={{ top: `${HEADER_HEIGHT}px` }}
-            >
+            <div className="absolute inset-0">
               {TIME_SLOTS.map((time) => (
                 <div
                   key={time}
