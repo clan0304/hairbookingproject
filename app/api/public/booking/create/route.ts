@@ -32,47 +32,27 @@ export async function POST(req: Request) {
       );
     }
 
-    // Validate required fields
-    if (
-      !body.team_member_id ||
-      !body.shop_id ||
-      !body.service_id ||
-      !body.starts_at ||
-      !body.ends_at ||
-      !body.duration ||
-      body.price === undefined ||
-      body.price === null
-    ) {
-      return NextResponse.json(
-        { error: 'Missing required booking information' },
-        { status: 400 }
-      );
-    }
+    // Extract date and time from the starts_at string
+    // Body contains starts_at like "2025-09-05T14:00:00"
+    const [dateStr, timeWithSeconds] = body.starts_at.split('T');
+    const timeStr = timeWithSeconds.substring(0, 8); // Get HH:mm:ss
 
-    // Generate booking number (format: BK-YYYYMMDD-XXXX)
-    const dateStr = body.starts_at.split('T')[0].replace(/-/g, '');
-    const randomNum = Math.floor(1000 + Math.random() * 9000);
-    const bookingNumber = `BK-${dateStr}-${randomNum}`;
-
-    // Insert directly into bookings table with starts_at and ends_at
-    const { data: booking, error: bookingError } = await supabase
-      .from('bookings')
-      .insert({
-        booking_number: bookingNumber,
-        client_id: client.id,
-        team_member_id: body.team_member_id,
-        shop_id: body.shop_id,
-        service_id: body.service_id,
-        variant_id: body.variant_id || null,
-        starts_at: body.starts_at, // Using starts_at timestamp
-        ends_at: body.ends_at, // Using ends_at timestamp
-        duration: body.duration,
-        price: body.price,
-        status: 'confirmed',
-        booking_note: body.booking_note || null,
-      })
-      .select()
-      .single();
+    // Use the database function that handles timezone conversion
+    const { data: bookingId, error: bookingError } = await supabase.rpc(
+      'create_booking_from_local',
+      {
+        p_client_id: client.id,
+        p_team_member_id: body.team_member_id,
+        p_shop_id: body.shop_id,
+        p_service_id: body.service_id,
+        p_booking_date: dateStr, // YYYY-MM-DD
+        p_start_time: timeStr, // HH:mm:ss
+        p_duration: body.duration,
+        p_price: body.price,
+        p_variant_id: body.variant_id || null,
+        p_booking_note: body.booking_note || null,
+      }
+    );
 
     if (bookingError) {
       console.error('Booking creation error:', bookingError);
@@ -82,16 +62,8 @@ export async function POST(req: Request) {
       );
     }
 
-    // Release any temporary reservations for this session
-    if (body.session_id) {
-      await supabase
-        .from('booking_reservations')
-        .delete()
-        .eq('session_id', body.session_id);
-    }
-
-    // Get the created booking details with additional info
-    const { data: bookingDetails } = await supabase
+    // Get the full booking details for the response
+    const { data: booking, error: fetchError } = await supabase
       .from('bookings')
       .select(
         `
@@ -115,8 +87,28 @@ export async function POST(req: Request) {
         )
       `
       )
-      .eq('id', booking.id)
+      .eq('id', bookingId)
       .single();
+
+    if (fetchError || !booking) {
+      console.error('Error fetching booking details:', fetchError);
+      // Still return success but with minimal data
+      return NextResponse.json({
+        data: {
+          id: bookingId,
+          booking_number: 'BK-' + Date.now(), // Fallback booking number
+        },
+        message: 'Booking confirmed successfully',
+      });
+    }
+
+    // Release any temporary reservations for this session
+    if (body.session_id) {
+      await supabase
+        .from('booking_reservations')
+        .delete()
+        .eq('session_id', body.session_id);
+    }
 
     // TODO: Send confirmation email to the client
     // You can use a service like SendGrid, Resend, or Supabase Edge Functions
@@ -124,11 +116,11 @@ export async function POST(req: Request) {
     return NextResponse.json({
       data: {
         ...booking,
-        booking_number: bookingNumber,
+        booking_number: booking.booking_number,
         // Include additional details if needed
-        client_name: bookingDetails?.clients?.first_name,
-        team_member_name: bookingDetails?.team_members?.first_name,
-        service_name: bookingDetails?.services?.name,
+        client_name: booking.clients?.first_name,
+        team_member_name: booking.team_members?.first_name,
+        service_name: booking.services?.name,
       },
       message: 'Booking confirmed successfully',
     });

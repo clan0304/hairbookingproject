@@ -46,16 +46,18 @@ export function BookingConfirmation({
   const convertTo24Hour = (time12h: string): string => {
     const [time, modifier] = time12h.split(' ');
     const timeParts = time.split(':');
-    let hours = timeParts[0];
-    const minutes = timeParts[1];
+    let hours = parseInt(timeParts[0], 10);
+    const minutes = parseInt(timeParts[1] || '0', 10);
 
-    if (hours === '12') {
-      hours = modifier?.toLowerCase() === 'am' ? '00' : '12';
-    } else if (modifier?.toLowerCase() === 'pm') {
-      hours = String(parseInt(hours, 10) + 12);
+    if (modifier?.toLowerCase() === 'pm' && hours !== 12) {
+      hours += 12;
+    } else if (modifier?.toLowerCase() === 'am' && hours === 12) {
+      hours = 0;
     }
 
-    return `${hours.padStart(2, '0')}:${minutes || '00'}`;
+    return `${hours.toString().padStart(2, '0')}:${minutes
+      .toString()
+      .padStart(2, '0')}`;
   };
 
   useEffect(() => {
@@ -77,12 +79,17 @@ export function BookingConfirmation({
         // Validate required data
         if (
           !currentBookingState.selectedDate ||
-          !currentBookingState.selectedTime
+          !currentBookingState.selectedTime ||
+          !currentBookingState.teamMemberId ||
+          !currentBookingState.serviceId ||
+          !currentBookingState.serviceDuration ||
+          currentBookingState.teamMemberPrice === null ||
+          currentBookingState.teamMemberPrice === undefined
         ) {
-          throw new Error('Missing date or time selection');
+          throw new Error('Missing required booking information');
         }
 
-        // Convert selected time to 24-hour format
+        // Convert selected time to 24-hour format if needed
         let formattedStartTime = currentBookingState.selectedTime;
         if (
           formattedStartTime.toLowerCase().includes('am') ||
@@ -91,21 +98,26 @@ export function BookingConfirmation({
           formattedStartTime = convertTo24Hour(formattedStartTime);
         }
 
-        // Create full datetime strings by combining date and time
+        // Create datetime strings - these are LOCAL times (not UTC)
         const bookingDate = format(
           currentBookingState.selectedDate,
           'yyyy-MM-dd'
         );
+
+        // Create start time
         const startsAt = `${bookingDate}T${formattedStartTime}:00`;
 
-        // Calculate end time
-        const [hours, minutes] = formattedStartTime.split(':').map(Number);
-        const startDate = new Date(currentBookingState.selectedDate);
-        startDate.setHours(hours, minutes, 0, 0);
-        const endDate = new Date(
-          startDate.getTime() + currentBookingState.serviceDuration! * 60000
-        );
-        const endsAt = `${bookingDate}T${format(endDate, 'HH:mm:ss')}`;
+        // Calculate end time properly
+        const [startHours, startMinutes] = formattedStartTime
+          .split(':')
+          .map(Number);
+        const totalMinutes =
+          startHours * 60 + startMinutes + currentBookingState.serviceDuration;
+        const endHours = Math.floor(totalMinutes / 60) % 24; // Handle day overflow
+        const endMinutes = totalMinutes % 60;
+        const endsAt = `${bookingDate}T${endHours
+          .toString()
+          .padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}:00`;
 
         // Prepare booking data
         const bookingData = {
@@ -113,15 +125,14 @@ export function BookingConfirmation({
           shop_id: currentShopId,
           service_id: currentBookingState.serviceId,
           variant_id: currentBookingState.variantId || null,
-          starts_at: startsAt,
-          ends_at: endsAt,
+          starts_at: startsAt, // This is local time, will be converted by API
+          ends_at: endsAt, // This is local time, will be converted by API
           duration: currentBookingState.serviceDuration,
           price: currentBookingState.teamMemberPrice,
           session_id: currentBookingState.sessionId || null,
           booking_note: null,
         };
 
-        // Create the booking WITHOUT abort signal to ensure it completes
         console.log('Sending booking data:', bookingData);
 
         const response = await fetch('/api/public/booking/create', {
@@ -150,7 +161,8 @@ export function BookingConfirmation({
           // Check if it's a double booking error
           if (
             responseData.error?.includes('no_double_booking') ||
-            responseData.error?.includes('already booked')
+            responseData.error?.includes('already booked') ||
+            responseData.error?.includes('overlapping')
           ) {
             throw new Error(
               'This time slot has already been booked. Please select a different time.'
@@ -179,13 +191,20 @@ export function BookingConfirmation({
         // Set appropriate error message
         if (
           err.message.includes('double_booking') ||
-          err.message.includes('already booked')
+          err.message.includes('already booked') ||
+          err.message.includes('overlapping')
         ) {
           setError(
             'This time slot is no longer available. Please go back and select a different time.'
           );
+        } else if (err.message.includes('Missing required')) {
+          setError(
+            'Some booking information is missing. Please go back and complete all steps.'
+          );
         } else {
-          setError(err.message || 'Failed to create booking');
+          setError(
+            err.message || 'Failed to create booking. Please try again.'
+          );
         }
 
         // Reset the flag on error so user can retry if needed
@@ -382,7 +401,9 @@ export function BookingConfirmation({
                 }\nProfessional: ${
                   bookingState.teamMemberName
                 }\nBooking Number: ${bookingNumber}`
-              )}&location=${encodeURIComponent(bookingState.shopAddress)}`;
+              )}&location=${encodeURIComponent(
+                bookingState.shopAddress || ''
+              )}`;
 
               window.open(googleCalendarUrl, '_blank');
             }}
