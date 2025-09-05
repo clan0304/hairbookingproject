@@ -3,29 +3,37 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { format, parse } from 'date-fns';
-import { Clock, User, Phone, Mail } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Clock, User, Mail, Phone } from 'lucide-react';
 import type { BookingWithLocalTimes as BookingWithDetails } from '@/types/database';
 
 interface BookingCardProps {
   booking: BookingWithDetails;
   compact?: boolean;
+  onDragStart?: (booking: BookingWithDetails) => void;
+  onDragEnd?: () => void;
+  isDragging?: boolean;
 }
 
-export function BookingCard({ booking, compact = false }: BookingCardProps) {
+export function BookingCard({
+  booking,
+  compact = false,
+  onDragStart,
+  onDragEnd,
+  isDragging = false,
+}: BookingCardProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0 });
   const cardRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
+  // Parse times
   const startTime = parse(booking.start_time, 'HH:mm:ss', new Date());
   const endTime = parse(booking.end_time, 'HH:mm:ss', new Date());
 
-  // Use category color or default
-  const backgroundColor = booking.category_color || '#3B82F6';
-
-  // Calculate if text should be white or black based on background
+  // Get color based on service category
+  const backgroundColor = booking.category_color || '#6366f1';
   const isLightColor = (color: string) => {
     const hex = color.replace('#', '');
     const r = parseInt(hex.substr(0, 2), 16);
@@ -41,7 +49,7 @@ export function BookingCard({ booking, compact = false }: BookingCardProps) {
 
   // Calculate popover position
   useEffect(() => {
-    if (showDetails && cardRef.current) {
+    if (showDetails && cardRef.current && !isDragging) {
       const rect = cardRef.current.getBoundingClientRect();
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
@@ -68,7 +76,7 @@ export function BookingCard({ booking, compact = false }: BookingCardProps) {
 
       setPopoverPosition({ top, left });
     }
-  }, [showDetails]);
+  }, [showDetails, isDragging]);
 
   // Close popover when clicking outside
   useEffect(() => {
@@ -90,15 +98,49 @@ export function BookingCard({ booking, compact = false }: BookingCardProps) {
     }
   }, [showDetails]);
 
+  const handleDragStart = (e: React.DragEvent) => {
+    if (onDragStart) {
+      onDragStart(booking);
+      // Set drag effect
+      e.dataTransfer.effectAllowed = 'move';
+      // Store booking data in drag event
+      e.dataTransfer.setData('bookingId', booking.id);
+      e.dataTransfer.setData('bookingData', JSON.stringify(booking));
+      // Hide details popover when starting drag
+      setShowDetails(false);
+    }
+  };
+
+  const handleDragEnd = () => {
+    if (onDragEnd) {
+      onDragEnd();
+    }
+  };
+
+  const handleClick = () => {
+    // Don't show details if we're dragging
+    if (!isDragging) {
+      setShowDetails(!showDetails);
+    }
+  };
+
   if (compact) {
     // Compact view for week mode
     return (
       <>
         <div
           ref={cardRef}
-          onClick={() => setShowDetails(!showDetails)}
-          className={`rounded px-1 py-0.5 cursor-pointer hover:opacity-90 transition-opacity overflow-hidden ${textColor}`}
-          style={{ backgroundColor }}
+          onClick={handleClick}
+          draggable={true}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          className={`rounded px-1 py-0.5 cursor-pointer hover:opacity-90 transition-opacity overflow-hidden ${textColor} ${
+            isDragging ? 'opacity-50' : ''
+          }`}
+          style={{
+            backgroundColor,
+            cursor: isDragging ? 'grabbing' : 'grab',
+          }}
         >
           <p className="text-xs font-medium truncate">
             {format(startTime, 'h:mm a')}
@@ -108,7 +150,7 @@ export function BookingCard({ booking, compact = false }: BookingCardProps) {
           </p>
         </div>
 
-        {showDetails && (
+        {showDetails && !isDragging && (
           <div
             ref={popoverRef}
             className="fixed z-50 w-80 rounded-md border bg-white p-4 shadow-md"
@@ -129,9 +171,17 @@ export function BookingCard({ booking, compact = false }: BookingCardProps) {
     <>
       <div
         ref={cardRef}
-        onClick={() => setShowDetails(!showDetails)}
-        className={`rounded-md px-2 py-1.5 cursor-pointer hover:opacity-90 transition-opacity overflow-hidden ${textColor}`}
-        style={{ backgroundColor }}
+        onClick={handleClick}
+        draggable={true}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        className={`rounded-md px-2 py-1.5 cursor-pointer hover:opacity-90 transition-opacity overflow-hidden ${textColor} ${
+          isDragging ? 'opacity-50' : ''
+        }`}
+        style={{
+          backgroundColor,
+          cursor: isDragging ? 'grabbing' : 'grab',
+        }}
       >
         <div className="flex items-center justify-between mb-1">
           <p className="text-xs font-medium">
@@ -147,7 +197,7 @@ export function BookingCard({ booking, compact = false }: BookingCardProps) {
         </p>
       </div>
 
-      {showDetails && (
+      {showDetails && !isDragging && (
         <div
           ref={popoverRef}
           className="fixed z-50 w-80 rounded-md border bg-white p-4 shadow-md"

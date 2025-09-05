@@ -1,7 +1,7 @@
 // app/admin/calendar/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { CalendarHeader } from '@/components/calendar/CalendarHeader';
 import { CalendarGrid } from '@/components/calendar/CalendarGrid';
 import { format, startOfWeek, endOfWeek, addDays, subDays } from 'date-fns';
@@ -121,6 +121,13 @@ export default function CalendarPage() {
     }
   };
 
+  // Handle booking update from drag and drop
+  const handleBookingUpdate = useCallback(() => {
+    // Refresh bookings after drag and drop update
+    fetchBookings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentDate, viewMode, selectedShop, selectedTeamMembers, showAllTeam]);
+
   const handleDateChange = (date: Date) => {
     setCurrentDate(date);
   };
@@ -197,7 +204,8 @@ export default function CalendarPage() {
           teamMembers={visibleTeamMembers}
           bookings={bookings}
           loading={loading}
-          shopTimezone={'Australia/Melbourne'} // Use default timezone
+          shopTimezone={'Australia/Melbourne'} // Use default timezone or get from shop
+          onBookingUpdate={handleBookingUpdate} // Pass the update handler
         />
       </div>
     </div>
