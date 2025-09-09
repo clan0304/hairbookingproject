@@ -84,16 +84,8 @@ export async function GET(req: Request) {
 
         // Date and time components for display
         booking_date: booking.booking_date_local,
-        start_time:
-          booking.start_time_local.includes(':') &&
-          booking.start_time_local.split(':').length === 2
-            ? booking.start_time_local + ':00' // Add seconds if not present
-            : booking.start_time_local,
-        end_time:
-          booking.end_time_local.includes(':') &&
-          booking.end_time_local.split(':').length === 2
-            ? booking.end_time_local + ':00' // Add seconds if not present
-            : booking.end_time_local,
+        start_time: booking.start_time_local,
+        end_time: booking.end_time_local,
 
         // Booking details
         duration: booking.duration,

@@ -23,17 +23,19 @@ interface CalendarGridProps {
   onBookingUpdate?: () => void;
 }
 
-// Time slots from 6:00 AM to 10:00 PM (16 hours)
-const TIME_SLOTS = Array.from({ length: 33 }, (_, i) => {
-  const hour = Math.floor(i / 2) + 6;
-  const minute = i % 2 === 0 ? '00' : '30';
-  return `${hour.toString().padStart(2, '0')}:${minute}`;
+// Time slots from 6:00 AM to 10:00 PM (16 hours) - NOW IN 15-MINUTE INTERVALS
+const TIME_SLOTS = Array.from({ length: 65 }, (_, i) => {
+  const hour = Math.floor(i / 4) + 6;
+  const minute = (i % 4) * 15;
+  return `${hour.toString().padStart(2, '0')}:${minute
+    .toString()
+    .padStart(2, '0')}`;
 });
 
-const SLOT_HEIGHT = 30; // Height of each 30-minute slot in pixels
+const SLOT_HEIGHT = 15; // Height of each 15-minute slot in pixels (reduced from 30)
 const HEADER_HEIGHT = 120; // Height of the header section
 const TIME_COLUMN_WIDTH = 80; // Width of the time column
-const MINUTES_PER_SLOT = 30; // 30 minutes per slot
+const MINUTES_PER_SLOT = 15; // 15 minutes per slot (changed from 30)
 
 export function CalendarGrid({
   currentDate,
@@ -51,6 +53,11 @@ export function CalendarGrid({
     time: string;
   } | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [hoveredSlot, setHoveredSlot] = useState<{
+    time: string;
+    teamMemberId?: string;
+    date?: string;
+  } | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
   // Calculate the dates to display
@@ -116,8 +123,8 @@ export function CalendarGrid({
 
     // Calculate height based on duration
     const height = Math.max(
-      SLOT_HEIGHT - 4,
-      (booking.duration / MINUTES_PER_SLOT) * SLOT_HEIGHT - 4
+      SLOT_HEIGHT - 2,
+      (booking.duration / MINUTES_PER_SLOT) * SLOT_HEIGHT - 2
     );
 
     return {
@@ -167,6 +174,31 @@ export function CalendarGrid({
     },
     [calculateTimeFromPosition]
   );
+
+  // Handle mouse move for hover effect
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent, teamMemberId?: string, date?: string) => {
+      const target = e.currentTarget as HTMLElement;
+      const rect = target.getBoundingClientRect();
+      const relativeY = e.clientY - rect.top;
+
+      // Calculate which time slot based on mouse position
+      const slotIndex = Math.floor(relativeY / SLOT_HEIGHT);
+      if (slotIndex >= 0 && slotIndex < TIME_SLOTS.length) {
+        setHoveredSlot({
+          time: TIME_SLOTS[slotIndex],
+          teamMemberId,
+          date,
+        });
+      }
+    },
+    []
+  );
+
+  // Handle mouse leave
+  const handleMouseLeaveGrid = useCallback(() => {
+    setHoveredSlot(null);
+  }, []);
 
   // Handle drag start
   const handleDragStart = useCallback((booking: BookingWithDetails) => {
@@ -303,15 +335,41 @@ export function CalendarGrid({
 
   return (
     <div className="relative h-full overflow-auto" ref={gridRef}>
+      {/* Hover time tooltip */}
+      {hoveredSlot && (
+        <div
+          className="fixed z-50 bg-gray-900 text-white text-xs px-2 py-1 rounded pointer-events-none"
+          style={{
+            left: `${
+              gridRef.current
+                ?.querySelector(
+                  `[data-member-id="${hoveredSlot.teamMemberId}"]`
+                )
+                ?.getBoundingClientRect().left || 0
+            }px`,
+            top: `${gridRef.current?.getBoundingClientRect().top || 0}px`,
+            transform: 'translate(-50%, -100%)',
+            marginTop: `-5px`,
+          }}
+        >
+          {format(parse(hoveredSlot.time, 'HH:mm', new Date()), 'h:mm a')}
+        </div>
+      )}
+
       {/* Header section */}
       <div className="sticky top-0 z-20 bg-white border-b">
         {/* Date headers */}
         <div className="flex" style={{ marginLeft: `${TIME_COLUMN_WIDTH}px` }}>
           {viewMode === 'day' ? (
-            // Day view: Show team members
+            // Day view - single date with team members
             <div className="flex-1">
-              <div className="border-b px-4 py-2 text-center font-semibold">
-                {format(currentDate, 'EEEE, MMMM d, yyyy')}
+              <div className="border-b px-4 py-2 text-center bg-gray-50">
+                <p className="font-semibold text-lg">
+                  {format(currentDate, 'EEEE')}
+                </p>
+                <p className="text-sm text-gray-600">
+                  {format(currentDate, 'MMMM d, yyyy')}
+                </p>
               </div>
               <div className="flex">
                 {teamMembers.map((member) => (
@@ -320,15 +378,12 @@ export function CalendarGrid({
                     className="flex-1 border-r last:border-r-0 py-2"
                   >
                     <div className="flex flex-col items-center">
-                      <Avatar className="h-10 w-10 mb-1">
+                      <Avatar className="h-10 w-10">
                         <AvatarImage src={member.photo || undefined} />
-                        <AvatarFallback>
-                          {member.first_name[0]}
-                          {member.last_name[0]}
-                        </AvatarFallback>
+                        <AvatarFallback>{member.first_name[0]}</AvatarFallback>
                       </Avatar>
-                      <p className="text-sm font-medium">
-                        {member.first_name} {member.last_name}
+                      <p className="text-sm font-medium mt-1">
+                        {member.first_name}
                       </p>
                       <p className="text-xs text-gray-500">{member.role}</p>
                     </div>
@@ -337,11 +392,11 @@ export function CalendarGrid({
               </div>
             </div>
           ) : (
-            // Week view: Show days and team members
+            // Week view - multiple dates with team members
             <div className="flex flex-1">
               {displayDates.map((date) => (
                 <div
-                  key={date.toISOString()}
+                  key={date.toString()}
                   className="flex-1 border-r last:border-r-0"
                 >
                   <div className="border-b px-2 py-2 text-center">
@@ -386,13 +441,27 @@ export function CalendarGrid({
           style={{
             width: `${TIME_COLUMN_WIDTH}px`,
           }}
+          onMouseMove={(e) => {
+            // For time column, use simpler calculation since it's not scrollable
+            const target = e.currentTarget as HTMLElement;
+            const rect = target.getBoundingClientRect();
+            const relativeY = e.clientY - rect.top;
+            const slotIndex = Math.floor(relativeY / SLOT_HEIGHT);
+            if (slotIndex >= 0 && slotIndex < TIME_SLOTS.length) {
+              setHoveredSlot({ time: TIME_SLOTS[slotIndex] });
+            }
+          }}
+          onMouseLeave={handleMouseLeaveGrid}
         >
           {TIME_SLOTS.map((time) => (
             <div
               key={time}
-              className="border-t text-xs text-gray-500 text-right pr-2"
+              className={`border-t text-xs text-gray-500 text-right pr-2 hover:bg-gray-50 transition-colors ${
+                hoveredSlot?.time === time ? 'bg-gray-100' : ''
+              }`}
               style={{ height: `${SLOT_HEIGHT}px` }}
             >
+              {/* Only show time labels on the hour for cleaner display */}
               {time.endsWith('00') && (
                 <span className="inline-block -mt-2">
                   {format(parse(time, 'HH:mm', new Date()), 'h:mm a')}
@@ -412,10 +481,12 @@ export function CalendarGrid({
         >
           {/* Grid background */}
           <div className="absolute inset-0">
-            {TIME_SLOTS.map((time) => (
+            {TIME_SLOTS.map((time, index) => (
               <div
                 key={time}
-                className="border-t"
+                className={`border-t ${
+                  index % 4 === 0 ? 'border-gray-300' : 'border-gray-200'
+                }`}
                 style={{ height: `${SLOT_HEIGHT}px` }}
               />
             ))}
@@ -438,10 +509,34 @@ export function CalendarGrid({
                       onDragOver={handleDragOver}
                       onDragLeave={handleDragLeave}
                       onDrop={handleDrop}
+                      onMouseMove={(e) =>
+                        handleMouseMove(
+                          e,
+                          member.id,
+                          format(currentDate, 'yyyy-MM-dd')
+                        )
+                      }
+                      onMouseLeave={handleMouseLeaveGrid}
                       style={{
                         height: `${TIME_SLOTS.length * SLOT_HEIGHT}px`,
                       }}
                     >
+                      {/* Visual feedback for hover */}
+                      {hoveredSlot?.teamMemberId === member.id &&
+                        hoveredSlot?.date ===
+                          format(currentDate, 'yyyy-MM-dd') && (
+                          <div
+                            className="absolute left-0 right-0 bg-gray-100 opacity-50 pointer-events-none transition-all"
+                            style={{
+                              top: `${
+                                TIME_SLOTS.indexOf(hoveredSlot.time) *
+                                SLOT_HEIGHT
+                              }px`,
+                              height: `${SLOT_HEIGHT}px`,
+                            }}
+                          />
+                        )}
+
                       {/* Visual feedback for drop zone */}
                       {dragOverSlot?.teamMemberId === member.id &&
                         dragOverSlot?.date ===
@@ -480,17 +575,14 @@ export function CalendarGrid({
                   </div>
                 ))
               : // Week view columns
-                displayDates.flatMap((date) =>
-                  teamMembers.map((member) => {
+                displayDates.map((date) => {
+                  return teamMembers.map((member) => {
+                    const key = `${date.toISOString()}-${member.id}`;
                     return (
                       <div
-                        key={`${format(date, 'yyyy-MM-dd')}-${member.id}`}
-                        className="relative border-r last:border-r-0"
-                        style={{
-                          width: `${
-                            100 / (displayDates.length * teamMembers.length)
-                          }%`,
-                        }}
+                        key={key}
+                        className="flex-1 relative border-r last:border-r-0"
+                        style={{ width: columnWidth }}
                       >
                         {/* Single drop zone for entire column */}
                         <div
@@ -500,10 +592,34 @@ export function CalendarGrid({
                           onDragOver={handleDragOver}
                           onDragLeave={handleDragLeave}
                           onDrop={handleDrop}
+                          onMouseMove={(e) =>
+                            handleMouseMove(
+                              e,
+                              member.id,
+                              format(date, 'yyyy-MM-dd')
+                            )
+                          }
+                          onMouseLeave={handleMouseLeaveGrid}
                           style={{
                             height: `${TIME_SLOTS.length * SLOT_HEIGHT}px`,
                           }}
                         >
+                          {/* Visual feedback for hover */}
+                          {hoveredSlot?.teamMemberId === member.id &&
+                            hoveredSlot?.date ===
+                              format(date, 'yyyy-MM-dd') && (
+                              <div
+                                className="absolute left-0 right-0 bg-gray-100 opacity-50 pointer-events-none transition-all"
+                                style={{
+                                  top: `${
+                                    TIME_SLOTS.indexOf(hoveredSlot.time) *
+                                    SLOT_HEIGHT
+                                  }px`,
+                                  height: `${SLOT_HEIGHT}px`,
+                                }}
+                              />
+                            )}
+
                           {/* Visual feedback for drop zone */}
                           {dragOverSlot?.teamMemberId === member.id &&
                             dragOverSlot?.date ===
@@ -541,8 +657,8 @@ export function CalendarGrid({
                           ))}
                       </div>
                     );
-                  })
-                )}
+                  });
+                })}
           </div>
         </div>
       </div>

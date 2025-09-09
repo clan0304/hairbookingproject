@@ -208,3 +208,146 @@ export interface BookingFlowState {
   // Session management
   sessionId?: string; // Added: Session ID for reservation management
 }
+
+export type DayType = 'weekday' | 'saturday' | 'sunday' | 'public_holiday';
+
+export interface HourlyRate {
+  id: string;
+  day_type: DayType;
+  rate: number; // Hourly rate in dollars
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PublicHoliday {
+  id: string;
+  name: string;
+  date: string; // ISO date string (YYYY-MM-DD)
+  recurring: boolean; // If true, applies every year
+  description?: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================
+// API Response Types
+// ============================================
+
+export interface HourlyRateResponse {
+  data: HourlyRate[];
+  message?: string;
+}
+
+export interface PublicHolidayResponse {
+  data: PublicHoliday[];
+  total_count: number;
+  message?: string;
+}
+
+// ============================================
+// Form/Request Types
+// ============================================
+
+export interface UpdateHourlyRateRequest {
+  day_type: DayType;
+  rate: number;
+}
+
+export interface CreatePublicHolidayRequest {
+  name: string;
+  date: string;
+  recurring: boolean;
+  description?: string;
+}
+
+export interface UpdatePublicHolidayRequest
+  extends Partial<CreatePublicHolidayRequest> {
+  is_active?: boolean;
+}
+
+export type ShiftStatus = 'active' | 'completed' | 'paid';
+
+export interface Break {
+  start: string;
+  end: string | null;
+  duration: number; // in minutes
+}
+
+export interface ShiftRecord {
+  id: string;
+  team_member_id: string;
+  date: string; // YYYY-MM-DD
+  shift_start: string; // ISO timestamp
+  shift_end: string | null; // ISO timestamp
+  breaks: Break[];
+  status: ShiftStatus;
+  total_break_minutes: number;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+  // Relations (optional, from joins)
+  team_member?: TeamMember;
+}
+
+// Calculated fields (not stored in DB)
+export interface ShiftCalculations {
+  gross_hours: number;
+  total_break_minutes: number;
+  paid_break_minutes: number;
+  unpaid_break_minutes: number;
+  net_hours: number;
+  day_type: DayType;
+  hourly_rate: number;
+  total_pay: number;
+}
+
+export interface ShiftWithCalculations extends ShiftRecord, ShiftCalculations {}
+
+// ============================================
+// API Request/Response Types
+// ============================================
+
+export interface CreateShiftRequest {
+  team_member_id: string;
+  shift_start?: string; // Optional, defaults to now
+  date?: string; // Optional, defaults to today
+}
+
+export interface UpdateShiftRequest {
+  shift_end?: string;
+  breaks?: Break[];
+  status?: ShiftStatus;
+  notes?: string;
+  total_break_minutes?: number;
+}
+
+export interface BreakActionRequest {
+  action: 'start' | 'end';
+}
+
+export interface MarkPaidRequest {
+  shift_ids: string[];
+}
+
+export interface TimesheetRequest {
+  team_member_id?: string;
+  start_date: string;
+  end_date: string;
+}
+
+export interface TimesheetResponse {
+  shifts: ShiftWithCalculations[];
+  summary: {
+    total_hours: number;
+    total_pay: number;
+    days_worked: number;
+    total_breaks: number;
+  };
+}
+
+export interface ShiftResponse {
+  data: ShiftWithCalculations | ShiftWithCalculations[];
+  message?: string;
+}

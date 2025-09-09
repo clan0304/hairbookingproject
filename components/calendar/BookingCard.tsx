@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { format, parse } from 'date-fns';
+import { format, parse, isValid } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Clock, User, Mail, Phone } from 'lucide-react';
@@ -14,6 +14,57 @@ interface BookingCardProps {
   onDragStart?: (booking: BookingWithDetails) => void;
   onDragEnd?: () => void;
   isDragging?: boolean;
+}
+
+// Helper function to safely parse time strings
+function parseTimeString(timeStr: string | undefined | null): Date | null {
+  if (!timeStr) return null;
+
+  // Remove any whitespace
+  const cleanTime = timeStr.trim();
+
+  // Try different formats
+  const formats = ['HH:mm:ss', 'HH:mm', 'h:mm a', 'h:mma'];
+
+  for (const fmt of formats) {
+    try {
+      const parsed = parse(cleanTime, fmt, new Date());
+      if (isValid(parsed)) {
+        return parsed;
+      }
+    } catch (e) {
+      // Continue to next format
+    }
+  }
+
+  // If all parsing fails, try to construct a date manually
+  const timeParts = cleanTime.split(':');
+  if (timeParts.length >= 2) {
+    const hours = parseInt(timeParts[0], 10);
+    const minutes = parseInt(timeParts[1], 10);
+    if (!isNaN(hours) && !isNaN(minutes)) {
+      const date = new Date();
+      date.setHours(hours, minutes, 0, 0);
+      return date;
+    }
+  }
+
+  return null;
+}
+
+// Helper function to format time with fallback
+function formatTime(
+  date: Date | null,
+  formatStr: string,
+  fallback: string = '--:--'
+): string {
+  if (!date || !isValid(date)) return fallback;
+  try {
+    return format(date, formatStr);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  } catch (e) {
+    return fallback;
+  }
 }
 
 export function BookingCard({
@@ -28,9 +79,9 @@ export function BookingCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  // Parse times
-  const startTime = parse(booking.start_time, 'HH:mm:ss', new Date());
-  const endTime = parse(booking.end_time, 'HH:mm:ss', new Date());
+  // Parse times safely
+  const startTime = parseTimeString(booking.start_time);
+  const endTime = parseTimeString(booking.end_time);
 
   // Get color based on service category
   const backgroundColor = booking.category_color || '#6366f1';
@@ -143,7 +194,7 @@ export function BookingCard({
           }}
         >
           <p className="text-xs font-medium truncate">
-            {format(startTime, 'h:mm a')}
+            {formatTime(startTime, 'h:mm a')}
           </p>
           <p className="text-xs truncate">
             {booking.client_first_name} {booking.client_last_name?.[0]}
@@ -185,7 +236,7 @@ export function BookingCard({
       >
         <div className="flex items-center justify-between mb-1">
           <p className="text-xs font-medium">
-            {format(startTime, 'h:mm')} - {format(endTime, 'h:mm a')}
+            {formatTime(startTime, 'h:mm')} - {formatTime(endTime, 'h:mm a')}
           </p>
         </div>
         <p className="text-sm font-medium truncate">
@@ -214,8 +265,9 @@ export function BookingCard({
 }
 
 function BookingDetails({ booking }: { booking: BookingWithDetails }) {
-  const startTime = parse(booking.start_time, 'HH:mm:ss', new Date());
-  const endTime = parse(booking.end_time, 'HH:mm:ss', new Date());
+  // Parse times safely
+  const startTime = parseTimeString(booking.start_time);
+  const endTime = parseTimeString(booking.end_time);
 
   return (
     <div className="space-y-3">
@@ -252,7 +304,7 @@ function BookingDetails({ booking }: { booking: BookingWithDetails }) {
             <Clock className="h-3 w-3" />
             <span>{booking.duration} min</span>
           </div>
-          <span>${booking.price.toFixed(2)}</span>
+          <span>${booking.price?.toFixed(2) || '0.00'}</span>
         </div>
       </div>
 
@@ -260,7 +312,7 @@ function BookingDetails({ booking }: { booking: BookingWithDetails }) {
       <div className="flex items-center gap-2 text-sm">
         <Clock className="h-4 w-4 text-gray-400" />
         <span>
-          {format(startTime, 'h:mm a')} - {format(endTime, 'h:mm a')}
+          {formatTime(startTime, 'h:mm a')} - {formatTime(endTime, 'h:mm a')}
         </span>
       </div>
 

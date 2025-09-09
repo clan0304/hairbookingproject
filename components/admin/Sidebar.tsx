@@ -62,8 +62,8 @@ export function Sidebar() {
       icon: Megaphone,
     },
     {
-      href: '/admin/partners',
-      label: 'Partners',
+      href: '/admin/staffmanagement',
+      label: 'Shift Management',
       icon: Users,
     },
     {

@@ -105,7 +105,7 @@ export function CalendarHeader({
     shops.find((s) => s.id === selectedShop)?.name || 'Select a shop';
 
   return (
-    <div className="bg-white border-b px-6 py-3">
+    <div className="bg-white border-b px-6 py-3 z-50">
       <div className="flex items-center justify-between gap-4">
         {/* Left side - Navigation and Date */}
         <div className="flex items-center gap-3">
