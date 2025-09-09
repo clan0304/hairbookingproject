@@ -1,7 +1,7 @@
 // components/calendar/CalendarGrid.tsx
 'use client';
 
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { format, addDays, isSameDay, startOfWeek, parse } from 'date-fns';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { BookingCard } from './BookingCard';
@@ -42,7 +42,7 @@ export function CalendarGrid({
   viewMode,
   teamMembers,
   bookings,
-
+  loading,
   onBookingUpdate,
 }: CalendarGridProps) {
   const [draggedBooking, setDraggedBooking] =
@@ -55,409 +55,217 @@ export function CalendarGrid({
   const [isUpdating, setIsUpdating] = useState(false);
   const [hoveredSlot, setHoveredSlot] = useState<{
     time: string;
-    teamMemberId?: string;
-    date?: string;
+    columnId: string; // Will be teamMemberId for day view, date for week view
   } | null>(null);
-  const gridRef = useRef<HTMLDivElement>(null);
 
-  // Calculate the dates to display
-  const displayDates = useMemo(() => {
-    if (viewMode === 'day') {
-      return [currentDate];
-    } else {
-      const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
-      return Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-    }
+  // Calculate week days for week view
+  const weekDays = useMemo(() => {
+    if (viewMode !== 'week') return [];
+    const start = startOfWeek(currentDate, { weekStartsOn: 1 }); // Monday
+    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
   }, [currentDate, viewMode]);
 
   // Group bookings by team member and date
   const bookingsByMemberAndDate = useMemo(() => {
-    const grouped = new Map<string, BookingWithDetails[]>();
+    const grouped: Record<string, BookingWithDetails[]> = {};
 
     bookings.forEach((booking) => {
-      // booking_date from the VIEW is already in local date format (YYYY-MM-DD)
-      const bookingDateStr =
-        booking.booking_date || booking.booking_date_local || '';
-      // Ensure we have a valid date string
-      if (!bookingDateStr) return;
+      const key =
+        viewMode === 'day'
+          ? booking.team_member_id
+          : `${booking.booking_date}-${booking.team_member_id}`;
 
-      const bookingDate = new Date(bookingDateStr + 'T00:00:00');
-
-      displayDates.forEach((date) => {
-        if (isSameDay(bookingDate, date)) {
-          const key = `${booking.team_member_id}-${format(date, 'yyyy-MM-dd')}`;
-          const existing = grouped.get(key) || [];
-          grouped.set(key, [...existing, booking]);
-        }
-      });
+      if (!grouped[key]) {
+        grouped[key] = [];
+      }
+      grouped[key].push(booking);
     });
 
     return grouped;
-  }, [bookings, displayDates]);
+  }, [bookings, viewMode]);
 
   // Calculate booking position and height
-  const getBookingStyle = (booking: BookingWithDetails) => {
-    // Get the time string - prioritize start_time_local from the VIEW
-    const timeStr = booking.start_time_local || booking.start_time || '00:00';
+  const getBookingStyle = useCallback((booking: BookingWithDetails) => {
+    // Parse the start time
+    const [hours, minutes] = (booking.start_time || '00:00')
+      .split(':')
+      .map(Number);
+    const startMinutes = hours * 60 + minutes;
 
-    let startHour = 0;
-    let startMinute = 0;
-
-    // Parse time string (format: "HH:MM" or "HH:MM:SS")
-    if (timeStr && timeStr.includes(':')) {
-      const parts = timeStr.split(':');
-      startHour = parseInt(parts[0], 10) || 0;
-      startMinute = parseInt(parts[1], 10) || 0;
-    }
-
-    // Validate parsed values
-    if (isNaN(startHour) || isNaN(startMinute)) {
-      console.warn('Invalid time for booking:', booking.id, timeStr);
-      startHour = 0;
-      startMinute = 0;
-    }
-
-    // Calculate position from 6:00 AM
-    const minutesFrom6AM = Math.max(0, (startHour - 6) * 60 + startMinute);
-    const top = (minutesFrom6AM / MINUTES_PER_SLOT) * SLOT_HEIGHT;
-
-    // Calculate height based on duration
-    const height = Math.max(
-      SLOT_HEIGHT - 2,
-      (booking.duration / MINUTES_PER_SLOT) * SLOT_HEIGHT - 2
+    // Convert to slot index (each slot is 15 minutes)
+    const startSlotIndex = Math.floor(
+      (startMinutes - 6 * 60) / MINUTES_PER_SLOT
     );
 
+    // Calculate height based on duration
+    const durationSlots = Math.ceil(booking.duration / MINUTES_PER_SLOT);
+
     return {
-      top: `${top}px`,
-      height: `${height}px`,
-      left: '4px',
-      right: '4px',
-      position: 'absolute' as const,
+      top: `${startSlotIndex * SLOT_HEIGHT}px`,
+      height: `${durationSlots * SLOT_HEIGHT - 2}px`, // -2 for border
+      left: '2px',
+      right: '2px',
     };
-  };
-
-  // Calculate time from mouse position
-  const calculateTimeFromPosition = useCallback(
-    (e: React.DragEvent, containerElement: HTMLElement) => {
-      const rect = containerElement.getBoundingClientRect();
-      const relativeY = e.clientY - rect.top;
-
-      // Calculate which time slot based on position
-      const slotIndex = Math.floor(relativeY / SLOT_HEIGHT);
-      const clampedIndex = Math.max(
-        0,
-        Math.min(TIME_SLOTS.length - 1, slotIndex)
-      );
-
-      return TIME_SLOTS[clampedIndex];
-    },
-    []
-  );
-
-  // Get team member and date from position
-  const getDropTargetFromPosition = useCallback(
-    (e: React.DragEvent) => {
-      const dropTarget = e.currentTarget as HTMLElement;
-      const teamMemberId = dropTarget.getAttribute('data-member-id');
-      const date = dropTarget.getAttribute('data-date');
-
-      if (!teamMemberId || !date) return null;
-
-      // Calculate the time based on mouse position
-      const time = calculateTimeFromPosition(e, dropTarget);
-
-      return {
-        teamMemberId,
-        date,
-        time,
-      };
-    },
-    [calculateTimeFromPosition]
-  );
-
-  // Handle mouse move for hover effect
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent, teamMemberId?: string, date?: string) => {
-      const target = e.currentTarget as HTMLElement;
-      const rect = target.getBoundingClientRect();
-      const relativeY = e.clientY - rect.top;
-
-      // Calculate which time slot based on mouse position
-      const slotIndex = Math.floor(relativeY / SLOT_HEIGHT);
-      if (slotIndex >= 0 && slotIndex < TIME_SLOTS.length) {
-        setHoveredSlot({
-          time: TIME_SLOTS[slotIndex],
-          teamMemberId,
-          date,
-        });
-      }
-    },
-    []
-  );
-
-  // Handle mouse leave
-  const handleMouseLeaveGrid = useCallback(() => {
-    setHoveredSlot(null);
   }, []);
 
-  // Handle drag start
+  // Drag and drop handlers
   const handleDragStart = useCallback((booking: BookingWithDetails) => {
     setDraggedBooking(booking);
   }, []);
 
-  // Handle drag end
   const handleDragEnd = useCallback(() => {
     setDraggedBooking(null);
     setDragOverSlot(null);
   }, []);
 
-  // Handle drag over
   const handleDragOver = useCallback(
-    (e: React.DragEvent) => {
+    (e: React.DragEvent, teamMemberId: string, date: Date, time: string) => {
       e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
+      if (!draggedBooking) return;
 
-      const dropTarget = getDropTargetFromPosition(e);
-      if (dropTarget) {
-        setDragOverSlot(dropTarget);
-      }
+      setDragOverSlot({
+        teamMemberId,
+        date: format(date, 'yyyy-MM-dd'),
+        time,
+      });
     },
-    [getDropTargetFromPosition]
+    [draggedBooking]
   );
 
-  // Handle drag leave
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    // Only clear if we're leaving the entire drop zone
-    const relatedTarget = e.relatedTarget as HTMLElement;
-    if (!relatedTarget || !e.currentTarget.contains(relatedTarget)) {
-      setDragOverSlot(null);
-    }
-  }, []);
-
-  // Handle drop
   const handleDrop = useCallback(
-    async (e: React.DragEvent) => {
+    async (
+      e: React.DragEvent,
+      teamMemberId: string,
+      date: Date,
+      time: string
+    ) => {
       e.preventDefault();
-
       if (!draggedBooking || isUpdating) return;
 
-      const dropTarget = getDropTargetFromPosition(e);
-      if (!dropTarget) return;
-
       setIsUpdating(true);
-      setDragOverSlot(null);
 
       try {
-        const { teamMemberId, date, time } = dropTarget;
+        // Calculate new booking details
+        const newDate = format(date, 'yyyy-MM-dd');
+        const newStartTime = time;
 
-        // Parse the time
-        const [hours, minutes] = time.split(':');
-        const startTime = `${hours}:${minutes}`;
-
-        // Calculate end time based on duration
-        const totalMinutes =
-          parseInt(hours) * 60 + parseInt(minutes) + draggedBooking.duration;
-        const endHours = Math.floor(totalMinutes / 60);
-        const endMinutes = totalMinutes % 60;
-        const endTime = `${endHours.toString().padStart(2, '0')}:${endMinutes
-          .toString()
-          .padStart(2, '0')}`;
-
-        // Check if end time goes past 10 PM (22:00)
-        if (endHours >= 22) {
-          toast.error('Booking would extend past closing time (10:00 PM)');
-          return;
-        }
-
-        // Prepare update data
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const updateData: any = {
-          date: date,
-          start_time: startTime,
-          end_time: endTime,
-          duration: draggedBooking.duration,
-        };
-
-        // Add team member if different
-        if (teamMemberId !== draggedBooking.team_member_id) {
-          updateData.team_member_id = teamMemberId;
-        }
-
-        // Call API to update booking
+        // Update booking via API
         const response = await fetch(
-          `/api/admin/calendar/${draggedBooking.id}`,
+          `/api/admin/bookings/${draggedBooking.id}/reschedule`,
           {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(updateData),
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              team_member_id: teamMemberId,
+              booking_date: newDate,
+              start_time: newStartTime,
+            }),
           }
         );
 
-        const result = await response.json();
-
         if (!response.ok) {
-          if (result.conflicts) {
-            toast.error(
-              `Time slot conflicts with booking(s): ${result.conflicts.join(
-                ', '
-              )}`
-            );
-          } else {
-            toast.error(result.error || 'Failed to update booking');
-          }
-          return;
+          throw new Error('Failed to reschedule booking');
         }
 
-        toast.success('Booking updated successfully');
-
-        // Refresh bookings
+        toast.success('Booking rescheduled successfully');
         if (onBookingUpdate) {
           onBookingUpdate();
         }
       } catch (error) {
-        console.error('Error updating booking:', error);
-        toast.error('Failed to update booking');
+        console.error('Error rescheduling booking:', error);
+        toast.error('Failed to reschedule booking');
       } finally {
         setIsUpdating(false);
         setDraggedBooking(null);
+        setDragOverSlot(null);
       }
     },
-    [draggedBooking, isUpdating, onBookingUpdate, getDropTargetFromPosition]
+    [draggedBooking, isUpdating, onBookingUpdate]
   );
 
-  // Column width calculation
-  const columnWidth =
-    viewMode === 'day'
-      ? `${100 / teamMembers.length}%`
-      : `${100 / (displayDates.length * teamMembers.length)}%`;
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-lg text-gray-500">Loading calendar...</div>
+      </div>
+    );
+  }
 
   return (
-    <div className="relative h-full overflow-auto" ref={gridRef}>
-      {/* Hover time tooltip */}
-      {hoveredSlot && (
-        <div
-          className="fixed z-50 bg-gray-900 text-white text-xs px-2 py-1 rounded pointer-events-none"
-          style={{
-            left: `${
-              gridRef.current
-                ?.querySelector(
-                  `[data-member-id="${hoveredSlot.teamMemberId}"]`
-                )
-                ?.getBoundingClientRect().left || 0
-            }px`,
-            top: `${gridRef.current?.getBoundingClientRect().top || 0}px`,
-            transform: 'translate(-50%, -100%)',
-            marginTop: `-5px`,
-          }}
-        >
-          {format(parse(hoveredSlot.time, 'HH:mm', new Date()), 'h:mm a')}
+    <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+      {/* Header */}
+      <div
+        className="grid bg-gray-50 border-b"
+        style={{
+          gridTemplateColumns:
+            viewMode === 'day'
+              ? `${TIME_COLUMN_WIDTH}px repeat(${teamMembers.length}, 1fr)`
+              : `${TIME_COLUMN_WIDTH}px repeat(7, 1fr)`,
+          height: `${HEADER_HEIGHT}px`,
+        }}
+      >
+        {/* Time header */}
+        <div className="border-r p-4">
+          <span className="text-sm font-medium text-gray-700">Time</span>
         </div>
-      )}
 
-      {/* Header section */}
-      <div className="sticky top-0 z-20 bg-white border-b">
-        {/* Date headers */}
-        <div className="flex" style={{ marginLeft: `${TIME_COLUMN_WIDTH}px` }}>
-          {viewMode === 'day' ? (
-            // Day view - single date with team members
-            <div className="flex-1">
-              <div className="border-b px-4 py-2 text-center bg-gray-50">
-                <p className="font-semibold text-lg">
-                  {format(currentDate, 'EEEE')}
-                </p>
-                <p className="text-sm text-gray-600">
-                  {format(currentDate, 'MMMM d, yyyy')}
-                </p>
-              </div>
-              <div className="flex">
-                {teamMembers.map((member) => (
-                  <div
-                    key={member.id}
-                    className="flex-1 border-r last:border-r-0 py-2"
-                  >
-                    <div className="flex flex-col items-center">
-                      <Avatar className="h-10 w-10">
-                        <AvatarImage src={member.photo || undefined} />
-                        <AvatarFallback>{member.first_name[0]}</AvatarFallback>
-                      </Avatar>
-                      <p className="text-sm font-medium mt-1">
-                        {member.first_name}
-                      </p>
-                      <p className="text-xs text-gray-500">{member.role}</p>
-                    </div>
+        {/* Column headers */}
+        {viewMode === 'day'
+          ? // Day view - show team members
+            teamMembers.map((member) => (
+              <div
+                key={member.id}
+                className="border-r p-4 flex flex-col items-center justify-center"
+              >
+                <Avatar className="h-12 w-12 mb-2">
+                  <AvatarImage src={member.photo || undefined} />
+                  <AvatarFallback>
+                    {member.first_name[0]}
+                    {member.last_name?.[0] || ''}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="text-center">
+                  <div className="font-medium text-sm">
+                    {member.first_name} {member.last_name}
                   </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            // Week view - multiple dates with team members
-            <div className="flex flex-1">
-              {displayDates.map((date) => (
-                <div
-                  key={date.toString()}
-                  className="flex-1 border-r last:border-r-0"
-                >
-                  <div className="border-b px-2 py-2 text-center">
-                    <p className="font-semibold">{format(date, 'EEE')}</p>
-                    <p className="text-sm text-gray-600">
-                      {format(date, 'MMM d')}
-                    </p>
-                  </div>
-                  <div className="flex">
-                    {teamMembers.map((member) => (
-                      <div
-                        key={`${date}-${member.id}`}
-                        className="flex-1 border-r last:border-r-0 py-2"
-                        style={{ width: columnWidth }}
-                      >
-                        <div className="flex flex-col items-center">
-                          <Avatar className="h-8 w-8">
-                            <AvatarImage src={member.photo || undefined} />
-                            <AvatarFallback className="text-xs">
-                              {member.first_name[0]}
-                            </AvatarFallback>
-                          </Avatar>
-                          <p className="text-xs mt-1 text-center">
-                            {member.first_name}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <div className="text-xs text-gray-500">{member.role}</div>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+              </div>
+            ))
+          : // Week view - show days
+            weekDays.map((day) => (
+              <div
+                key={day.toISOString()}
+                className={`border-r p-4 text-center ${
+                  isSameDay(day, new Date()) ? 'bg-blue-50' : ''
+                }`}
+              >
+                <div className="font-medium text-sm">{format(day, 'EEE')}</div>
+                <div className="text-2xl font-bold">{format(day, 'd')}</div>
+                <div className="text-xs text-gray-500">
+                  {format(day, 'MMM')}
+                </div>
+              </div>
+            ))}
       </div>
 
-      {/* Time grid */}
-      <div className="relative" style={{ paddingTop: `${HEADER_HEIGHT}px` }}>
-        {/* Time labels */}
+      {/* Grid */}
+      <div
+        className="relative"
+        style={{
+          height: `${TIME_SLOTS.length * SLOT_HEIGHT}px`,
+        }}
+      >
+        {/* Time column */}
         <div
-          className="absolute top-0 left-0"
-          style={{
-            width: `${TIME_COLUMN_WIDTH}px`,
-          }}
-          onMouseMove={(e) => {
-            // For time column, use simpler calculation since it's not scrollable
-            const target = e.currentTarget as HTMLElement;
-            const rect = target.getBoundingClientRect();
-            const relativeY = e.clientY - rect.top;
-            const slotIndex = Math.floor(relativeY / SLOT_HEIGHT);
-            if (slotIndex >= 0 && slotIndex < TIME_SLOTS.length) {
-              setHoveredSlot({ time: TIME_SLOTS[slotIndex] });
-            }
-          }}
-          onMouseLeave={handleMouseLeaveGrid}
+          className="absolute left-0 top-0 bg-white border-r z-10"
+          style={{ width: `${TIME_COLUMN_WIDTH}px` }}
         >
-          {TIME_SLOTS.map((time) => (
+          {TIME_SLOTS.map((time, index) => (
             <div
               key={time}
-              className={`border-t text-xs text-gray-500 text-right pr-2 hover:bg-gray-50 transition-colors ${
-                hoveredSlot?.time === time ? 'bg-gray-100' : ''
+              className={`text-xs text-gray-500 pr-2 text-right border-t ${
+                index % 4 === 0 ? 'border-gray-300' : 'border-gray-200'
               }`}
               style={{ height: `${SLOT_HEIGHT}px` }}
             >
@@ -492,172 +300,182 @@ export function CalendarGrid({
             ))}
           </div>
 
+          {/* Vertical lines - NEW SECTION */}
+          <div className="absolute inset-0 flex pointer-events-none z-10">
+            {viewMode === 'day'
+              ? teamMembers.map((_, index) => (
+                  <div
+                    key={`line-${index}`}
+                    className="flex-1 border-r border-gray-300"
+                    style={{
+                      borderRightWidth:
+                        index === teamMembers.length - 1 ? 0 : 1,
+                    }}
+                  />
+                ))
+              : Array.from({ length: 7 }, (_, index) => (
+                  <div
+                    key={`line-${index}`}
+                    className="flex-1 border-r border-gray-300"
+                    style={{ borderRightWidth: index === 6 ? 0 : 1 }}
+                  />
+                ))}
+          </div>
+
           {/* Columns with drop zones */}
           <div className="flex h-full relative">
             {viewMode === 'day'
-              ? // Day view columns
-                teamMembers.map((member) => (
+              ? // Day view - columns are team members
+                teamMembers.map((member, index) => (
                   <div
                     key={member.id}
-                    className="flex-1 relative border-r last:border-r-0"
+                    className="flex-1 relative"
+                    style={{
+                      borderRight:
+                        index < teamMembers.length - 1
+                          ? '1px solid #d1d5db'
+                          : 'none',
+                    }}
                   >
-                    {/* Single drop zone for entire column */}
-                    <div
-                      className="absolute inset-0"
-                      data-member-id={member.id}
-                      data-date={format(currentDate, 'yyyy-MM-dd')}
-                      onDragOver={handleDragOver}
-                      onDragLeave={handleDragLeave}
-                      onDrop={handleDrop}
-                      onMouseMove={(e) =>
-                        handleMouseMove(
-                          e,
-                          member.id,
-                          format(currentDate, 'yyyy-MM-dd')
-                        )
-                      }
-                      onMouseLeave={handleMouseLeaveGrid}
-                      style={{
-                        height: `${TIME_SLOTS.length * SLOT_HEIGHT}px`,
-                      }}
-                    >
-                      {/* Visual feedback for hover */}
-                      {hoveredSlot?.teamMemberId === member.id &&
-                        hoveredSlot?.date ===
-                          format(currentDate, 'yyyy-MM-dd') && (
-                          <div
-                            className="absolute left-0 right-0 bg-gray-100 opacity-50 pointer-events-none transition-all"
-                            style={{
-                              top: `${
-                                TIME_SLOTS.indexOf(hoveredSlot.time) *
-                                SLOT_HEIGHT
-                              }px`,
-                              height: `${SLOT_HEIGHT}px`,
-                            }}
-                          />
-                        )}
+                    {/* Drop zones */}
+                    {TIME_SLOTS.map((time, index) => (
+                      <div
+                        key={`${member.id}-${time}`}
+                        className={`absolute w-full ${
+                          hoveredSlot?.time === time &&
+                          hoveredSlot?.columnId === member.id
+                            ? 'bg-gray-100'
+                            : ''
+                        } ${
+                          dragOverSlot?.teamMemberId === member.id &&
+                          dragOverSlot?.time === time
+                            ? 'bg-blue-100'
+                            : ''
+                        }`}
+                        style={{
+                          height: `${SLOT_HEIGHT}px`,
+                          top: `${index * SLOT_HEIGHT}px`,
+                        }}
+                        onMouseEnter={() =>
+                          setHoveredSlot({
+                            time,
+                            columnId: member.id,
+                          })
+                        }
+                        onMouseLeave={() => setHoveredSlot(null)}
+                        onDragOver={(e) =>
+                          handleDragOver(e, member.id, currentDate, time)
+                        }
+                        onDrop={(e) =>
+                          handleDrop(e, member.id, currentDate, time)
+                        }
+                      >
+                        {/* Show time on hover */}
+                        {hoveredSlot?.time === time &&
+                          hoveredSlot?.columnId === member.id && (
+                            <span className="absolute left-2 top-0 text-xs text-blue-600 font-medium">
+                              {format(
+                                parse(time, 'HH:mm', new Date()),
+                                'h:mm a'
+                              )}
+                            </span>
+                          )}
+                      </div>
+                    ))}
 
-                      {/* Visual feedback for drop zone */}
-                      {dragOverSlot?.teamMemberId === member.id &&
-                        dragOverSlot?.date ===
-                          format(currentDate, 'yyyy-MM-dd') && (
-                          <div
-                            className="absolute left-0 right-0 bg-purple-100 opacity-50 pointer-events-none"
-                            style={{
-                              top: `${
-                                TIME_SLOTS.indexOf(dragOverSlot.time) *
-                                SLOT_HEIGHT
-                              }px`,
-                              height: `${SLOT_HEIGHT}px`,
-                            }}
-                          />
-                        )}
-                    </div>
-
-                    {/* Bookings for this member */}
-                    {bookingsByMemberAndDate
-                      .get(`${member.id}-${format(currentDate, 'yyyy-MM-dd')}`)
-                      ?.map((booking) => (
-                        <div
-                          key={booking.id}
-                          style={getBookingStyle(booking)}
-                          className="z-10"
-                        >
-                          <BookingCard
-                            booking={booking}
-                            compact={false}
-                            onDragStart={handleDragStart}
-                            onDragEnd={handleDragEnd}
-                            isDragging={draggedBooking?.id === booking.id}
-                          />
-                        </div>
-                      ))}
+                    {/* Bookings */}
+                    {bookingsByMemberAndDate[member.id]?.map((booking) => (
+                      <div
+                        key={booking.id}
+                        className="absolute z-20"
+                        style={getBookingStyle(booking)}
+                      >
+                        <BookingCard
+                          booking={booking}
+                          onDragStart={handleDragStart}
+                          onDragEnd={handleDragEnd}
+                          isDragging={draggedBooking?.id === booking.id}
+                        />
+                      </div>
+                    ))}
                   </div>
                 ))
-              : // Week view columns
-                displayDates.map((date) => {
-                  return teamMembers.map((member) => {
-                    const key = `${date.toISOString()}-${member.id}`;
-                    return (
-                      <div
-                        key={key}
-                        className="flex-1 relative border-r last:border-r-0"
-                        style={{ width: columnWidth }}
-                      >
-                        {/* Single drop zone for entire column */}
-                        <div
-                          className="absolute inset-0"
-                          data-member-id={member.id}
-                          data-date={format(date, 'yyyy-MM-dd')}
-                          onDragOver={handleDragOver}
-                          onDragLeave={handleDragLeave}
-                          onDrop={handleDrop}
-                          onMouseMove={(e) =>
-                            handleMouseMove(
-                              e,
-                              member.id,
-                              format(date, 'yyyy-MM-dd')
-                            )
-                          }
-                          onMouseLeave={handleMouseLeaveGrid}
-                          style={{
-                            height: `${TIME_SLOTS.length * SLOT_HEIGHT}px`,
-                          }}
-                        >
-                          {/* Visual feedback for hover */}
-                          {hoveredSlot?.teamMemberId === member.id &&
-                            hoveredSlot?.date ===
-                              format(date, 'yyyy-MM-dd') && (
-                              <div
-                                className="absolute left-0 right-0 bg-gray-100 opacity-50 pointer-events-none transition-all"
-                                style={{
-                                  top: `${
-                                    TIME_SLOTS.indexOf(hoveredSlot.time) *
-                                    SLOT_HEIGHT
-                                  }px`,
-                                  height: `${SLOT_HEIGHT}px`,
-                                }}
-                              />
-                            )}
+              : // Week view - columns are days
+                weekDays.map((day) => {
+                  const dateStr = format(day, 'yyyy-MM-dd');
+                  return (
+                    <div key={dateStr} className="flex-1 relative">
+                      {/* Drop zones for each team member */}
+                      {teamMembers.map((member) => (
+                        <div key={member.id} className="relative">
+                          {TIME_SLOTS.map((time, index) => (
+                            <div
+                              key={`${dateStr}-${member.id}-${time}`}
+                              className={`absolute w-full ${
+                                hoveredSlot?.time === time &&
+                                hoveredSlot?.columnId === dateStr
+                                  ? 'bg-gray-100'
+                                  : ''
+                              } ${
+                                dragOverSlot?.teamMemberId === member.id &&
+                                dragOverSlot?.date === dateStr &&
+                                dragOverSlot?.time === time
+                                  ? 'bg-blue-100'
+                                  : ''
+                              }`}
+                              style={{
+                                height: `${SLOT_HEIGHT}px`,
+                                top: `${index * SLOT_HEIGHT}px`,
+                              }}
+                              onMouseEnter={() =>
+                                setHoveredSlot({
+                                  time,
+                                  columnId: dateStr,
+                                })
+                              }
+                              onMouseLeave={() => setHoveredSlot(null)}
+                              onDragOver={(e) =>
+                                handleDragOver(e, member.id, day, time)
+                              }
+                              onDrop={(e) =>
+                                handleDrop(e, member.id, day, time)
+                              }
+                            >
+                              {/* Show time on hover */}
+                              {hoveredSlot?.time === time &&
+                                hoveredSlot?.columnId === dateStr && (
+                                  <span className="absolute left-2 top-0 text-xs text-blue-600 font-medium">
+                                    {format(
+                                      parse(time, 'HH:mm', new Date()),
+                                      'h:mm a'
+                                    )}
+                                  </span>
+                                )}
+                            </div>
+                          ))}
 
-                          {/* Visual feedback for drop zone */}
-                          {dragOverSlot?.teamMemberId === member.id &&
-                            dragOverSlot?.date ===
-                              format(date, 'yyyy-MM-dd') && (
-                              <div
-                                className="absolute left-0 right-0 bg-purple-100 opacity-50 pointer-events-none"
-                                style={{
-                                  top: `${
-                                    TIME_SLOTS.indexOf(dragOverSlot.time) *
-                                    SLOT_HEIGHT
-                                  }px`,
-                                  height: `${SLOT_HEIGHT}px`,
-                                }}
-                              />
-                            )}
-                        </div>
-
-                        {/* Bookings for this member and date */}
-                        {bookingsByMemberAndDate
-                          .get(`${member.id}-${format(date, 'yyyy-MM-dd')}`)
-                          ?.map((booking) => (
+                          {/* Bookings for this day and member */}
+                          {bookingsByMemberAndDate[
+                            `${dateStr}-${member.id}`
+                          ]?.map((booking) => (
                             <div
                               key={booking.id}
+                              className="absolute z-20"
                               style={getBookingStyle(booking)}
-                              className="z-10"
                             >
                               <BookingCard
                                 booking={booking}
-                                compact={viewMode === 'week'}
+                                compact={true}
                                 onDragStart={handleDragStart}
                                 onDragEnd={handleDragEnd}
                                 isDragging={draggedBooking?.id === booking.id}
                               />
                             </div>
                           ))}
-                      </div>
-                    );
-                  });
+                        </div>
+                      ))}
+                    </div>
+                  );
                 })}
           </div>
         </div>
