@@ -33,7 +33,7 @@ function parseTimeString(timeStr: string | undefined | null): Date | null {
         return parsed;
       }
     } catch (e) {
-      // Continue to next format
+      console.log(e);
     }
   }
 
