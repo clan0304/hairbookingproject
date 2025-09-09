@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // app/api/admin/team/shifts/route.ts
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
@@ -43,7 +44,7 @@ async function getHourlyRate(dayType: DayType): Promise<number> {
 }
 
 // Helper function to calculate shift totals
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 async function calculateShiftTotals(shift: any) {
   // Calculate break times
   const totalBreakMinutes = shift.total_break_minutes || 0;
@@ -171,7 +172,7 @@ export async function GET(req: Request) {
   }
 }
 
-// POST create new shift (clock in)
+// POST create new shift (clock in) OR perform auto clock-out
 export async function POST(req: Request) {
   try {
     const { userId } = await auth();
@@ -191,6 +192,116 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
+
+    // Check if this is an auto clock-out request
+    if (body.action === 'auto_clockout') {
+      // AUTO CLOCK-OUT LOGIC
+      const now = new Date();
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+      // Set clock-out time to 23:59:59 of the previous day
+      const clockOutTime = new Date(yesterdayStr + 'T23:59:59');
+      const clockOutTimeISO = clockOutTime.toISOString();
+
+      // Find all active shifts from yesterday or earlier
+      const { data: activeShifts, error: fetchError } = await supabaseAdmin
+        .from('shift_records')
+        .select('*')
+        .eq('status', 'active')
+        .lte('date', yesterdayStr);
+
+      if (fetchError) {
+        console.error('Error fetching active shifts:', fetchError);
+        return NextResponse.json(
+          { error: 'Failed to fetch active shifts' },
+          { status: 500 }
+        );
+      }
+
+      if (!activeShifts || activeShifts.length === 0) {
+        return NextResponse.json({
+          message: 'No active shifts to auto clock-out',
+          count: 0,
+        });
+      }
+
+      // Process each active shift
+      const clockedOutShifts = [];
+      const errors = [];
+
+      for (const shift of activeShifts) {
+        try {
+          // Handle any active breaks
+          const updatedBreaks = shift.breaks || [];
+          let totalBreakMinutes = shift.total_break_minutes || 0;
+
+          if (Array.isArray(updatedBreaks)) {
+            // End any active break at 23:59:59
+            const activeBreakIndex = updatedBreaks.findIndex(
+              (b: any) => !b.end
+            );
+
+            if (activeBreakIndex !== -1) {
+              updatedBreaks[activeBreakIndex].end = clockOutTimeISO;
+              const duration =
+                calculateHours(
+                  updatedBreaks[activeBreakIndex].start,
+                  updatedBreaks[activeBreakIndex].end
+                ) * 60;
+              updatedBreaks[activeBreakIndex].duration = Math.round(duration);
+
+              // Recalculate total break minutes
+              totalBreakMinutes = updatedBreaks.reduce(
+                (sum: number, b: any) => sum + (b.duration || 0),
+                0
+              );
+            }
+          }
+
+          // Update the shift to clock out at 23:59:59
+          const { data: updatedShift, error: updateError } = await supabaseAdmin
+            .from('shift_records')
+            .update({
+              shift_end: clockOutTimeISO,
+              status: 'completed',
+              breaks: updatedBreaks,
+              total_break_minutes: totalBreakMinutes,
+              updated_at: new Date().toISOString(),
+              notes: shift.notes
+                ? `${shift.notes}\n[Auto clocked-out at midnight]`
+                : '[Auto clocked-out at midnight]',
+            })
+            .eq('id', shift.id)
+            .select()
+            .single();
+
+          if (updateError) {
+            errors.push({
+              shiftId: shift.id,
+              error: updateError.message,
+            });
+          } else {
+            clockedOutShifts.push(updatedShift);
+          }
+        } catch (error) {
+          errors.push({
+            shiftId: shift.id,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
+      }
+
+      return NextResponse.json({
+        message: `Auto clocked-out ${clockedOutShifts.length} shift(s) at midnight`,
+        clockedOut: clockedOutShifts.length,
+        errors: errors.length > 0 ? errors : undefined,
+        details: clockedOutShifts,
+      });
+    }
+
+    // REGULAR CLOCK-IN LOGIC
     const { team_member_id, shift_start, date } = body;
 
     if (!team_member_id) {
@@ -200,15 +311,15 @@ export async function POST(req: Request) {
       );
     }
 
-    // Check if there's already an active shift for this team member
-    const { data: activeShift } = await supabaseAdmin
+    // Check if member already has an active shift
+    const { data: existingShift } = await supabaseAdmin
       .from('shift_records')
       .select('id')
       .eq('team_member_id', team_member_id)
       .eq('status', 'active')
       .single();
 
-    if (activeShift) {
+    if (existingShift) {
       return NextResponse.json(
         { error: 'Team member already has an active shift' },
         { status: 400 }
@@ -216,19 +327,21 @@ export async function POST(req: Request) {
     }
 
     // Create new shift
-    const now = new Date();
-    const shiftData = {
-      team_member_id,
-      date: date || now.toISOString().split('T')[0],
-      shift_start: shift_start || now.toISOString(),
-      status: 'active',
-      breaks: [],
-      total_break_minutes: 0,
-    };
+    const shiftDate = date || new Date().toISOString().split('T')[0];
+    const shiftStart = shift_start || new Date().toISOString();
 
     const { data: newShift, error } = await supabaseAdmin
       .from('shift_records')
-      .insert(shiftData)
+      .insert({
+        team_member_id,
+        date: shiftDate,
+        shift_start: shiftStart,
+        status: 'active',
+        breaks: [],
+        total_break_minutes: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
       .select(
         `
         *,
@@ -247,15 +360,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    // Calculate initial totals
     const calculations = await calculateShiftTotals(newShift);
 
     return NextResponse.json({
       data: { ...newShift, ...calculations },
-      message: 'Shift started successfully',
+      message: 'Clocked in successfully',
     });
   } catch (error) {
-    console.error('Error creating shift:', error);
+    console.error('Error in shift operation:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // app/admin/staffmanagement/page.tsx
 'use client';
@@ -17,8 +18,6 @@ import {
   X,
   Edit2,
   Trash2,
-  Save,
-  XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -68,7 +67,7 @@ export default function StaffManagementPage() {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [selectedMember, setSelectedMember] = useState<string>('');
   const [activeShifts, setActiveShifts] = useState<ShiftWithCalculations[]>([]);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
   const [todayShifts, setTodayShifts] = useState<ShiftWithCalculations[]>([]);
   const [weeklyShifts, setWeeklyShifts] = useState<ShiftWithCalculations[]>([]);
   const [activeTab, setActiveTab] = useState<'clock' | 'active' | 'timesheet'>(
@@ -81,32 +80,76 @@ export default function StaffManagementPage() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [weekOffset, setWeekOffset] = useState(0); // 0 = current week, -1 = last week, etc.
 
-  // Ref to store interval ID for cleanup
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Add these new state variables for auto clock-out functionality
+  const [lastAutoClockOutDate, setLastAutoClockOutDate] = useState<string>('');
+  const autoClockOutIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Update current time and check for midnight
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const newTime = new Date();
+      setCurrentTime(newTime);
+
+      // Also check for midnight during regular time updates
+      checkMidnightAutoClockOut();
+    }, 1000);
+
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastAutoClockOutDate]);
+
+  // Fetch team members
+  useEffect(() => {
+    fetchTeamMembers();
+  }, []);
+
+  // Fetch shifts on component mount
+  useEffect(() => {
+    fetchActiveShifts();
+    fetchTodayShifts();
+    fetchWeeklyShifts(weekOffset);
+    setLoading(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekOffset]);
+
+  // Auto clock-out functionality
+  useEffect(() => {
+    // Check immediately on mount
+    checkMidnightAutoClockOut();
+
+    // Set up interval to check every minute
+    autoClockOutIntervalRef.current = setInterval(() => {
+      checkMidnightAutoClockOut();
+    }, 60000); // Check every 60 seconds
+
+    // Cleanup interval on unmount
+    return () => {
+      if (autoClockOutIntervalRef.current) {
+        clearInterval(autoClockOutIntervalRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastAutoClockOutDate]);
 
   // Fetch team members
   const fetchTeamMembers = async () => {
     try {
       const response = await fetch('/api/admin/team');
-      if (!response.ok) throw new Error('Failed to fetch team members');
-      const { data } = await response.json();
-      setTeamMembers(data);
+      const data = await response.json();
+      setTeamMembers(data.data || []);
     } catch (error) {
-      toast.error('Failed to load team members');
-      console.error(error);
+      console.error('Error fetching team members:', error);
     }
   };
 
-  // Fetch active shifts (from any date)
+  // Fetch active shifts
   const fetchActiveShifts = async () => {
     try {
-      const response = await fetch(`/api/admin/team/shifts?status=active`);
-      if (!response.ok) throw new Error('Failed to fetch active shifts');
-      const { data } = await response.json();
-      setActiveShifts(data);
+      const response = await fetch('/api/admin/team/shifts?status=active');
+      const data = await response.json();
+      setActiveShifts(data.data || []);
     } catch (error) {
-      toast.error('Failed to load active shifts');
-      console.error(error);
+      console.error('Error fetching active shifts:', error);
     }
   };
 
@@ -115,80 +158,95 @@ export default function StaffManagementPage() {
     try {
       const today = new Date().toISOString().split('T')[0];
       const response = await fetch(`/api/admin/team/shifts?date=${today}`);
-      if (!response.ok) throw new Error('Failed to fetch shifts');
-      const { data } = await response.json();
-      setTodayShifts(data);
+      const data = await response.json();
+      setTodayShifts(data.data || []);
     } catch (error) {
-      toast.error('Failed to load shifts');
-      console.error(error);
+      console.error('Error fetching today shifts:', error);
     }
   };
 
   // Fetch weekly shifts
-  const fetchWeeklyShifts = async (offset: number = 0) => {
+  const fetchWeeklyShifts = async (offset: number) => {
     try {
-      const now = new Date();
-      const targetWeek = addWeeks(now, offset);
-      const weekStart = startOfWeek(targetWeek, { weekStartsOn: 1 }); // Monday as start
-      const weekEnd = endOfWeek(targetWeek, { weekStartsOn: 1 });
-
-      const startDate = format(weekStart, 'yyyy-MM-dd');
-      const endDate = format(weekEnd, 'yyyy-MM-dd');
+      const weekRange = getWeekDateRange(offset);
+      const startDate = weekRange.start.toISOString().split('T')[0];
+      const endDate = weekRange.end.toISOString().split('T')[0];
 
       const response = await fetch(
         `/api/admin/team/shifts?start_date=${startDate}&end_date=${endDate}`
       );
-      if (!response.ok) throw new Error('Failed to fetch weekly shifts');
-      const { data } = await response.json();
-
-      setWeeklyShifts(data);
+      const data = await response.json();
+      // Filter out active shifts for timesheet
+      const completedShiftsOnly = (data.data || []).filter(
+        (shift: ShiftWithCalculations) => shift.status !== 'active'
+      );
+      setWeeklyShifts(completedShiftsOnly);
     } catch (error) {
-      toast.error('Failed to load weekly shifts');
-      console.error(error);
+      console.error('Error fetching weekly shifts:', error);
     }
   };
 
-  // Update current time every second for live updates
-  useEffect(() => {
-    intervalRef.current = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000); // Update every second
+  // Auto clock-out function
+  const performAutoClockOut = async () => {
+    try {
+      const response = await fetch('/api/admin/team/shifts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'auto_clockout' }), // Special action parameter
+      });
 
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
+      if (response.ok) {
+        const result = await response.json();
+        if (result.clockedOut > 0) {
+          toast.info(
+            `Automatic midnight clock-out: ${result.clockedOut} shift(s) ended`,
+            {
+              duration: 5000,
+            }
+          );
+          // Refresh the shifts data
+          fetchActiveShifts();
+          fetchTodayShifts();
+          // Refresh weekly shifts - fetchWeeklyShifts already filters out active shifts
+          if (weekOffset === 0) fetchWeeklyShifts(0);
+        }
       }
-    };
-  }, []);
+    } catch (error) {
+      console.error('Auto clock-out error:', error);
+    }
+  };
 
-  // Fetch data on mount and when week changes
-  useEffect(() => {
-    const loadInitialData = async () => {
-      setLoading(true);
-      await Promise.all([
-        fetchTeamMembers(),
-        fetchActiveShifts(),
-        fetchTodayShifts(),
-        fetchWeeklyShifts(weekOffset),
-      ]);
-      setLoading(false);
-    };
-    loadInitialData();
-  }, [weekOffset]);
+  // Check if it's midnight and perform auto clock-out
+  const checkMidnightAutoClockOut = () => {
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+    const currentDateStr = now.toISOString().split('T')[0];
+
+    // Check if it's between 00:00 and 00:01 (first minute after midnight)
+    // and we haven't already run auto clock-out for this date
+    if (
+      currentHour === 0 &&
+      currentMinute === 0 &&
+      lastAutoClockOutDate !== currentDateStr
+    ) {
+      setLastAutoClockOutDate(currentDateStr);
+      performAutoClockOut();
+    }
+  };
 
   // Handle clock in
   const handleClockIn = async () => {
-    if (!selectedMember) {
-      toast.error('Please select a team member');
-      return;
-    }
+    if (!selectedMember) return;
 
     setProcessing(true);
     try {
       const response = await fetch('/api/admin/team/shifts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ team_member_id: selectedMember }),
+        body: JSON.stringify({
+          team_member_id: selectedMember,
+        }),
       });
 
       if (!response.ok) {
@@ -201,6 +259,7 @@ export default function StaffManagementPage() {
       setSelectedMember('');
       fetchActiveShifts();
       fetchTodayShifts();
+      // Note: fetchWeeklyShifts already filters out active shifts
       if (weekOffset === 0) fetchWeeklyShifts(0); // Refresh weekly if viewing current week
     } catch (error: any) {
       toast.error(error.message);
@@ -224,6 +283,7 @@ export default function StaffManagementPage() {
       toast.success('Clocked out successfully');
       fetchActiveShifts();
       fetchTodayShifts();
+      // Refresh weekly shifts - fetchWeeklyShifts already filters out active shifts
       if (weekOffset === 0) fetchWeeklyShifts(0);
     } catch (error) {
       toast.error(`${error} Failed to clock out`);
@@ -247,6 +307,7 @@ export default function StaffManagementPage() {
       toast.success(action === 'start' ? 'Break started' : 'Break ended');
       fetchActiveShifts();
       fetchTodayShifts();
+      // Note: fetchWeeklyShifts already filters out active shifts
       if (weekOffset === 0) fetchWeeklyShifts(0);
     } catch (error) {
       toast.error(`Failed to ${error} break`);
@@ -352,13 +413,15 @@ export default function StaffManagementPage() {
       {/* Header */}
       <div className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="py-6">
-            <h1 className="text-2xl font-bold text-gray-900">
-              Staff Management
-            </h1>
-            <p className="mt-1 text-sm text-gray-600">
-              Manage shifts, breaks, and timesheets
-            </p>
+          <div className="py-6 flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">
+                Staff Management
+              </h1>
+              <p className="mt-1 text-sm text-gray-600">
+                Manage shifts, breaks, and timesheets
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -381,19 +444,7 @@ export default function StaffManagementPage() {
                   Clock In/Out
                 </div>
               </button>
-              <button
-                onClick={() => setActiveTab('active')}
-                className={`py-4 px-6 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === 'active'
-                    ? 'border-purple-600 text-purple-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                <div className="flex items-center">
-                  <Users className="w-4 h-4 mr-2" />
-                  Active Shifts ({activeShifts.length})
-                </div>
-              </button>
+
               <button
                 onClick={() => setActiveTab('timesheet')}
                 className={`py-4 px-6 border-b-2 font-medium text-sm transition-colors ${
@@ -500,24 +551,23 @@ export default function StaffManagementPage() {
                                   <p
                                     className={
                                       onBreak
-                                        ? 'font-semibold text-yellow-600'
+                                        ? 'text-yellow-600 font-medium'
                                         : ''
                                     }
                                   >
-                                    Breaks: {formatBreakTime(shift)}
-                                    {onBreak && (
-                                      <span className="ml-1 inline-block w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></span>
-                                    )}
+                                    Break time: {formatBreakTime(shift)}
                                   </p>
                                 </div>
                               </div>
+
                               <div className="flex gap-2">
                                 {onBreak ? (
                                   <button
                                     onClick={() => handleBreak(shift.id, 'end')}
                                     disabled={processing}
-                                    className="px-3 py-1 bg-yellow-600 text-white rounded hover:bg-yellow-700 disabled:opacity-50 text-sm"
+                                    className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-50 transition-colors flex items-center text-sm"
                                   >
+                                    <Coffee className="w-4 h-4 mr-1" />
                                     End Break
                                   </button>
                                 ) : (
@@ -526,17 +576,18 @@ export default function StaffManagementPage() {
                                       handleBreak(shift.id, 'start')
                                     }
                                     disabled={processing}
-                                    className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 text-sm"
+                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center text-sm"
                                   >
+                                    <Coffee className="w-4 h-4 mr-1" />
                                     Start Break
                                   </button>
                                 )}
                                 <button
                                   onClick={() => handleClockOut(shift.id)}
                                   disabled={processing}
-                                  className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 text-sm flex items-center"
+                                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors flex items-center text-sm"
                                 >
-                                  <Square className="w-3 h-3 mr-1" />
+                                  <Square className="w-4 h-4 mr-1" />
                                   Clock Out
                                 </button>
                               </div>
@@ -550,110 +601,20 @@ export default function StaffManagementPage() {
               </div>
             )}
 
-            {activeTab === 'active' && (
-              <div>
-                <h3 className="text-lg font-semibold mb-4">Active Shifts</h3>
-                {activeShifts.length === 0 ? (
-                  <div className="text-center py-12 text-gray-500">
-                    <Clock className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                    <p>No active shifts at the moment</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {activeShifts.map((shift) => {
-                      const onBreak = isOnBreak(shift);
-                      return (
-                        <div
-                          key={shift.id}
-                          className="bg-white border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow"
-                        >
-                          <div className="flex items-start justify-between mb-3">
-                            <div>
-                              <h4 className="font-semibold text-lg">
-                                {shift.team_member.first_name}{' '}
-                                {shift.team_member.last_name}
-                              </h4>
-                              <p className="text-sm text-gray-600">
-                                {shift.team_member.email}
-                              </p>
-                            </div>
-                            {onBreak ? (
-                              <span className="px-3 py-1 bg-yellow-100 text-yellow-800 text-sm rounded-full flex items-center">
-                                <Coffee className="w-3 h-3 mr-1" />
-                                On Break
-                              </span>
-                            ) : (
-                              <span className="px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full">
-                                Working
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="space-y-2 text-sm">
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Started:</span>
-                              <span className="font-medium">
-                                {formatTime(shift.shift_start)}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Duration:</span>
-                              <span className="font-medium">
-                                {calculateLiveHours(shift)}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Breaks:</span>
-                              <span
-                                className={`font-medium ${
-                                  onBreak ? 'text-yellow-600' : ''
-                                }`}
-                              >
-                                {formatBreakTime(shift)}
-                                {onBreak && (
-                                  <span className="ml-1 inline-block w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse"></span>
-                                )}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">
-                                Current Earnings:
-                              </span>
-                              <span className="font-medium text-green-600">
-                                ${(shift.total_pay || 0).toFixed(2)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
             {activeTab === 'timesheet' && (
               <div>
                 {/* Week Navigation */}
-                <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-lg font-semibold">Weekly Timesheet</h3>
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-4">
                     <button
                       onClick={() => setWeekOffset(weekOffset - 1)}
                       className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                     >
                       <ChevronLeft className="w-5 h-5" />
                     </button>
-                    <div className="px-4 py-2 bg-gray-100 rounded-lg min-w-[200px] text-center">
-                      <span className="font-medium">
-                        {getWeekDateRange(weekOffset).formatted}
-                      </span>
-                      {weekOffset === 0 && (
-                        <span className="ml-2 text-xs text-green-600 font-medium">
-                          (Current Week)
-                        </span>
-                      )}
-                    </div>
+                    <h3 className="text-lg font-semibold">
+                      {getWeekDateRange(weekOffset).formatted}
+                    </h3>
                     <button
                       onClick={() => setWeekOffset(weekOffset + 1)}
                       disabled={weekOffset >= 0}
@@ -688,7 +649,23 @@ export default function StaffManagementPage() {
                     </thead>
                     <tbody>
                       {(() => {
-                        // Group shifts by team member
+                        // weeklyShifts already contains only completed shifts (filtered in fetchWeeklyShifts)
+
+                        // Check if there are no completed shifts
+                        if (weeklyShifts.length === 0) {
+                          return (
+                            <tr>
+                              <td
+                                colSpan={5}
+                                className="text-center py-8 text-gray-500"
+                              >
+                                No completed shifts for this week
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        // Group completed shifts by team member
                         const shiftsByMember = weeklyShifts.reduce(
                           (acc: any, shift) => {
                             const memberId = shift.team_member_id;
@@ -700,116 +677,61 @@ export default function StaffManagementPage() {
                                 totalPay: 0,
                                 totalBreaks: 0,
                                 completedCount: 0,
-                                activeCount: 0,
                               };
                             }
                             acc[memberId].shifts.push(shift);
 
-                            // Calculate hours for active shifts
-                            if (shift.status === 'active') {
-                              const [hours, mins] =
-                                calculateLiveHours(shift).split(':');
-                              acc[memberId].totalHours +=
-                                parseInt(hours) + parseInt(mins) / 60;
-                              acc[memberId].activeCount++;
-                              // Estimate pay for active shifts
-                              const estimatedPay =
-                                (parseInt(hours) + parseInt(mins) / 60) *
-                                (shift.hourly_rate || 25);
-                              acc[memberId].totalPay += estimatedPay;
-                            } else {
-                              acc[memberId].totalHours += shift.net_hours || 0;
-                              acc[memberId].totalPay += shift.total_pay || 0;
-                              if (shift.status === 'completed')
-                                acc[memberId].completedCount++;
-                            }
-
+                            // Calculate totals for completed shifts only
+                            acc[memberId].totalHours += shift.net_hours || 0;
+                            acc[memberId].totalPay += shift.total_pay || 0;
+                            acc[memberId].completedCount++;
                             acc[memberId].totalBreaks +=
                               shift.total_break_minutes || 0;
+
                             return acc;
                           },
                           {}
                         );
 
-                        // Add team members with no shifts
-                        teamMembers.forEach((member) => {
-                          if (!shiftsByMember[member.id]) {
-                            shiftsByMember[member.id] = {
-                              member: member,
-                              shifts: [],
-                              totalHours: 0,
-                              totalPay: 0,
-                              totalBreaks: 0,
-                              completedCount: 0,
-                              activeCount: 0,
-                            };
-                          }
-                        });
-
-                        return Object.values(shiftsByMember).map(
-                          (memberData: any) => (
+                        return Object.entries(shiftsByMember).map(
+                          ([memberId, data]: [string, any]) => (
                             <tr
-                              key={memberData.member.id}
-                              className="border-b hover:bg-gray-50 cursor-pointer transition-colors"
-                              onClick={() =>
-                                setSelectedMemberDetail(memberData)
-                              }
+                              key={memberId}
+                              className="border-t hover:bg-gray-50 cursor-pointer"
+                              onClick={() => setSelectedMemberDetail(data)}
                             >
                               <td className="py-4 px-6">
-                                <div className="flex items-center gap-3">
-                                  <div className="w-10 h-10 bg-gradient-to-r from-purple-600 to-blue-600 rounded-full flex items-center justify-center text-white font-semibold">
-                                    {memberData.member.first_name[0]}
-                                    {memberData.member.last_name[0]}
-                                  </div>
-                                  <div>
-                                    <p className="font-medium text-gray-900">
-                                      {memberData.member.first_name}{' '}
-                                      {memberData.member.last_name}
-                                    </p>
-                                    <p className="text-sm text-gray-500">
-                                      {memberData.member.email}
-                                    </p>
-                                  </div>
+                                <div className="font-medium text-gray-900">
+                                  {data.member.first_name}{' '}
+                                  {data.member.last_name}
+                                </div>
+                                <div className="text-sm text-gray-500">
+                                  {data.member.email}
                                 </div>
                               </td>
                               <td className="py-4 px-6">
-                                <span className="font-medium text-blue-600">
-                                  {formatHoursToHHMM(memberData.totalHours)}
-                                </span>
+                                <div className="text-gray-900">
+                                  {formatHoursToHHMM(data.totalHours)}
+                                </div>
                               </td>
                               <td className="py-4 px-6">
-                                <span className="font-semibold text-green-600">
-                                  ${memberData.totalPay.toFixed(2)}
-                                </span>
+                                <div className="font-medium text-green-600">
+                                  ${data.totalPay.toFixed(2)}
+                                </div>
                               </td>
                               <td className="py-4 px-6">
                                 <div className="flex items-center gap-2">
-                                  {memberData.completedCount > 0 && (
-                                    <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
-                                      {memberData.completedCount} completed
-                                    </span>
-                                  )}
-                                  {memberData.activeCount > 0 && (
-                                    <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
-                                      {memberData.activeCount} active
-                                    </span>
-                                  )}
-                                  {memberData.shifts.length === 0 && (
-                                    <span className="text-sm text-gray-500">
-                                      No shifts
-                                    </span>
-                                  )}
+                                  <span className="text-gray-900">
+                                    {data.shifts.length}
+                                  </span>
+                                  <span className="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded-full">
+                                    completed
+                                  </span>
                                 </div>
                               </td>
                               <td className="py-4 px-6 text-center">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedMemberDetail(memberData);
-                                  }}
-                                  className="text-purple-600 hover:text-purple-700 font-medium text-sm"
-                                >
-                                  View Details →
+                                <button className="text-purple-600 hover:text-purple-700 font-medium text-sm">
+                                  View Details
                                 </button>
                               </td>
                             </tr>
@@ -820,70 +742,32 @@ export default function StaffManagementPage() {
                   </table>
                 </div>
 
-                {/* Grand Total Row */}
-                <div className="mt-4 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg p-4">
-                  <div className="flex justify-between items-center">
-                    <span className="font-semibold">Week Total</span>
-                    <div className="flex gap-8">
-                      <div>
-                        <span className="text-purple-100 text-sm">
-                          Total Pay:
-                        </span>
-                        <span className="ml-2 font-bold text-lg">
-                          $
-                          {weeklyShifts
-                            .reduce((sum, shift) => {
-                              if (shift.status === 'active') {
-                                const [hours, mins] =
-                                  calculateLiveHours(shift).split(':');
-                                const totalHours =
-                                  parseInt(hours) + parseInt(mins) / 60;
-                                return (
-                                  sum + totalHours * (shift.hourly_rate || 25)
-                                );
-                              }
-                              return sum + (shift.total_pay || 0);
-                            }, 0)
-                            .toFixed(2)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Detail Modal with Edit/Delete */}
+                {/* Member Detail Modal */}
                 {selectedMemberDetail && (
-                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-lg max-w-5xl w-full max-h-[90vh] overflow-hidden">
-                      {/* Modal Header */}
-                      <div className="bg-gradient-to-r from-purple-600 to-blue-600 text-white p-6">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h2 className="text-2xl font-bold mb-1">
-                              {selectedMemberDetail.member.first_name}{' '}
-                              {selectedMemberDetail.member.last_name}
-                            </h2>
-                            <p className="text-purple-100">
-                              {getWeekDateRange(weekOffset).formatted}
-                            </p>
-                          </div>
-                          <button
-                            onClick={() => {
-                              setSelectedMemberDetail(null);
-                              setEditingShiftId(null);
-                              setEditedShift(null);
-                            }}
-                            className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-                          >
-                            <X className="w-5 h-5" />
-                          </button>
-                        </div>
+                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[80vh] overflow-y-auto">
+                      <div className="flex justify-between items-start mb-4">
+                        <h3 className="text-xl font-semibold">
+                          {selectedMemberDetail.member.first_name}{' '}
+                          {selectedMemberDetail.member.last_name} - Shift
+                          Details
+                        </h3>
+                        <button
+                          onClick={() => {
+                            setSelectedMemberDetail(null);
+                            setEditingShiftId(null);
+                            setEditedShift(null);
+                          }}
+                          className="text-gray-400 hover:text-gray-500"
+                        >
+                          <X className="w-6 h-6" />
+                        </button>
                       </div>
 
                       {/* Summary Cards */}
-                      <div className="grid grid-cols-3 gap-4 p-6 border-b">
-                        <div className="bg-blue-50 rounded-lg p-4">
-                          <div className="flex items-center gap-2 text-blue-600 mb-1">
+                      <div className="grid grid-cols-3 gap-4 mb-6">
+                        <div className="bg-gray-50 p-4 rounded-lg">
+                          <div className="flex items-center gap-2 text-purple-600 mb-1">
                             <Clock className="w-4 h-4" />
                             <span className="text-sm font-medium">
                               Total Hours
@@ -893,18 +777,18 @@ export default function StaffManagementPage() {
                             {formatHoursToHHMM(selectedMemberDetail.totalHours)}
                           </p>
                         </div>
-                        <div className="bg-green-50 rounded-lg p-4">
-                          <div className="flex items-center gap-2 text-green-600 mb-1">
+                        <div className="bg-gray-50 p-4 rounded-lg">
+                          <div className="flex items-center gap-2 text-purple-600 mb-1">
                             <DollarSign className="w-4 h-4" />
                             <span className="text-sm font-medium">
-                              Total Earnings
+                              Total Pay
                             </span>
                           </div>
                           <p className="text-2xl font-bold text-gray-900">
                             ${selectedMemberDetail.totalPay.toFixed(2)}
                           </p>
                         </div>
-                        <div className="bg-purple-50 rounded-lg p-4">
+                        <div className="bg-gray-50 p-4 rounded-lg">
                           <div className="flex items-center gap-2 text-purple-600 mb-1">
                             <Coffee className="w-4 h-4" />
                             <span className="text-sm font-medium">
@@ -958,371 +842,95 @@ export default function StaffManagementPage() {
                                   colSpan={9}
                                   className="text-center py-8 text-gray-500"
                                 >
-                                  No shifts recorded for this week
+                                  No completed shifts found
                                 </td>
                               </tr>
                             ) : (
-                              selectedMemberDetail.shifts
-                                .sort(
-                                  (a: any, b: any) =>
-                                    new Date(a.date).getTime() -
-                                    new Date(b.date).getTime()
-                                )
-                                .map((shift: any) => {
-                                  const isEditing = editingShiftId === shift.id;
-                                  const currentShift = isEditing
-                                    ? editedShift
-                                    : shift;
-
-                                  return (
-                                    <tr
-                                      key={shift.id}
-                                      className="border-b hover:bg-gray-50"
+                              selectedMemberDetail.shifts.map((shift: any) => (
+                                <tr key={shift.id} className="border-t">
+                                  <td className="py-3 px-4">
+                                    {format(parseISO(shift.date), 'MMM d')}
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    {formatTime(shift.shift_start)}
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    {shift.shift_end
+                                      ? formatTime(shift.shift_end)
+                                      : '-'}
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    {formatHoursToHHMM(shift.net_hours || 0)}
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    {shift.total_break_minutes || 0} mins
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    ${shift.hourly_rate || 0}/hr
+                                  </td>
+                                  <td className="py-3 px-4 font-medium text-green-600">
+                                    ${(shift.total_pay || 0).toFixed(2)}
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    <span
+                                      className={`px-2 py-1 text-xs rounded-full ${
+                                        shift.status === 'completed'
+                                          ? 'bg-gray-100 text-gray-800'
+                                          : 'bg-blue-100 text-blue-800'
+                                      }`}
                                     >
-                                      <td className="py-3 px-4 text-gray-900">
-                                        {format(
-                                          parseISO(shift.date),
-                                          'EEE, MMM d'
-                                        )}
-                                      </td>
-                                      <td className="py-3 px-4 text-gray-600">
-                                        {isEditing ? (
-                                          <input
-                                            type="time"
-                                            value={format(
-                                              parseISO(
-                                                currentShift.shift_start
-                                              ),
-                                              'HH:mm'
-                                            )}
-                                            onChange={(e) => {
-                                              const [hours, minutes] =
-                                                e.target.value.split(':');
-                                              const newDate = new Date(
-                                                currentShift.shift_start
+                                      {shift.status}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    <div className="flex justify-center gap-2">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          // Add edit functionality here
+                                          setEditingShiftId(shift.id);
+                                          setEditedShift(shift);
+                                        }}
+                                        className="text-blue-600 hover:text-blue-700"
+                                      >
+                                        <Edit2 className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          if (
+                                            confirm('Delete this shift record?')
+                                          ) {
+                                            try {
+                                              const response = await fetch(
+                                                `/api/admin/team/shifts/${shift.id}`,
+                                                { method: 'DELETE' }
                                               );
-                                              newDate.setHours(
-                                                parseInt(hours),
-                                                parseInt(minutes)
+                                              if (response.ok) {
+                                                toast.success(
+                                                  'Shift deleted successfully'
+                                                );
+                                                // Refresh and close modal
+                                                fetchWeeklyShifts(weekOffset);
+                                                fetchActiveShifts();
+                                                fetchTodayShifts();
+                                                setSelectedMemberDetail(null);
+                                              }
+                                            } catch (error) {
+                                              toast.error(
+                                                'Failed to delete shift'
                                               );
-                                              setEditedShift({
-                                                ...currentShift,
-                                                shift_start:
-                                                  newDate.toISOString(),
-                                              });
-                                            }}
-                                            className="px-2 py-1 border rounded"
-                                          />
-                                        ) : (
-                                          formatTime(shift.shift_start)
-                                        )}
-                                      </td>
-                                      <td className="py-3 px-4 text-gray-600">
-                                        {isEditing ? (
-                                          shift.shift_end ? (
-                                            <input
-                                              type="time"
-                                              value={format(
-                                                parseISO(
-                                                  currentShift.shift_end
-                                                ),
-                                                'HH:mm'
-                                              )}
-                                              onChange={(e) => {
-                                                const [hours, minutes] =
-                                                  e.target.value.split(':');
-                                                const newDate = new Date(
-                                                  currentShift.shift_end
-                                                );
-                                                newDate.setHours(
-                                                  parseInt(hours),
-                                                  parseInt(minutes)
-                                                );
-                                                setEditedShift({
-                                                  ...currentShift,
-                                                  shift_end:
-                                                    newDate.toISOString(),
-                                                });
-                                              }}
-                                              className="px-2 py-1 border rounded"
-                                            />
-                                          ) : (
-                                            <span className="text-gray-400">
-                                              Active
-                                            </span>
-                                          )
-                                        ) : shift.shift_end ? (
-                                          formatTime(shift.shift_end)
-                                        ) : (
-                                          '-'
-                                        )}
-                                      </td>
-                                      <td className="py-3 px-4 font-medium">
-                                        {shift.status === 'active' ? (
-                                          <span className="text-blue-600">
-                                            {calculateLiveHours(shift)}
-                                          </span>
-                                        ) : (
-                                          formatHoursToHHMM(
-                                            shift.net_hours || 0
-                                          )
-                                        )}
-                                      </td>
-                                      <td className="py-3 px-4">
-                                        {isEditing ? (
-                                          <input
-                                            type="number"
-                                            value={
-                                              currentShift.total_break_minutes ||
-                                              0
                                             }
-                                            onChange={(e) =>
-                                              setEditedShift({
-                                                ...currentShift,
-                                                total_break_minutes:
-                                                  parseInt(e.target.value) || 0,
-                                              })
-                                            }
-                                            className="px-2 py-1 border rounded w-20"
-                                            min="0"
-                                          />
-                                        ) : shift.status === 'active' ? (
-                                          formatBreakTime(shift)
-                                        ) : (
-                                          `${
-                                            shift.total_break_minutes || 0
-                                          } mins`
-                                        )}
-                                      </td>
-                                      <td className="py-3 px-4">
-                                        ${(shift.hourly_rate || 25).toFixed(0)}
-                                        /h
-                                      </td>
-                                      <td className="py-3 px-4 font-medium text-green-600">
-                                        $
-                                        {shift.status === 'active'
-                                          ? (() => {
-                                              const [hours, mins] =
-                                                calculateLiveHours(shift).split(
-                                                  ':'
-                                                );
-                                              const totalHours =
-                                                parseInt(hours) +
-                                                parseInt(mins) / 60;
-                                              return (
-                                                totalHours *
-                                                (shift.hourly_rate || 25)
-                                              ).toFixed(2);
-                                            })()
-                                          : (shift.total_pay || 0).toFixed(2)}
-                                      </td>
-                                      <td className="py-3 px-4">
-                                        <span
-                                          className={`px-2 py-1 text-xs font-medium rounded-full ${
-                                            shift.status === 'active'
-                                              ? 'bg-green-100 text-green-800'
-                                              : shift.status === 'completed'
-                                              ? 'bg-blue-100 text-blue-800'
-                                              : 'bg-gray-100 text-gray-800'
-                                          }`}
-                                        >
-                                          {shift.status}
-                                        </span>
-                                      </td>
-                                      <td className="py-3 px-4">
-                                        <div className="flex items-center justify-center gap-1">
-                                          {isEditing ? (
-                                            <>
-                                              <button
-                                                onClick={async () => {
-                                                  // Handle save
-                                                  try {
-                                                    const response =
-                                                      await fetch(
-                                                        `/api/admin/team/shifts/${shift.id}`,
-                                                        {
-                                                          method: 'PUT',
-                                                          headers: {
-                                                            'Content-Type':
-                                                              'application/json',
-                                                          },
-                                                          body: JSON.stringify({
-                                                            shift_start:
-                                                              editedShift.shift_start,
-                                                            shift_end:
-                                                              editedShift.shift_end,
-                                                            total_break_minutes:
-                                                              editedShift.total_break_minutes,
-                                                          }),
-                                                        }
-                                                      );
-
-                                                    if (response.ok) {
-                                                      toast.success(
-                                                        'Shift updated successfully'
-                                                      );
-                                                      setEditingShiftId(null);
-                                                      setEditedShift(null);
-                                                      fetchWeeklyShifts(
-                                                        weekOffset
-                                                      );
-                                                      // Update modal data
-                                                      const updatedShifts =
-                                                        selectedMemberDetail.shifts.map(
-                                                          (s: any) =>
-                                                            s.id === shift.id
-                                                              ? editedShift
-                                                              : s
-                                                        );
-                                                      setSelectedMemberDetail({
-                                                        ...selectedMemberDetail,
-                                                        shifts: updatedShifts,
-                                                      });
-                                                    } else {
-                                                      toast.error(
-                                                        'Failed to update shift'
-                                                      );
-                                                    }
-                                                  } catch (error) {
-                                                    toast.error(
-                                                      `${error} Error updating shift`
-                                                    );
-                                                  }
-                                                }}
-                                                className="p-1 text-green-600 hover:bg-green-50 rounded"
-                                                title="Save"
-                                              >
-                                                <Save className="w-4 h-4" />
-                                              </button>
-                                              <button
-                                                onClick={() => {
-                                                  setEditingShiftId(null);
-                                                  setEditedShift(null);
-                                                }}
-                                                className="p-1 text-gray-600 hover:bg-gray-50 rounded"
-                                                title="Cancel"
-                                              >
-                                                <XCircle className="w-4 h-4" />
-                                              </button>
-                                            </>
-                                          ) : (
-                                            <>
-                                              <button
-                                                onClick={() => {
-                                                  setEditingShiftId(shift.id);
-                                                  setEditedShift(shift);
-                                                }}
-                                                className="p-1 text-blue-600 hover:bg-blue-50 rounded"
-                                                title="Edit"
-                                                disabled={
-                                                  shift.status === 'active'
-                                                }
-                                              >
-                                                <Edit2 className="w-4 h-4" />
-                                              </button>
-                                              <button
-                                                onClick={async () => {
-                                                  if (
-                                                    confirm(
-                                                      'Are you sure you want to delete this shift?'
-                                                    )
-                                                  ) {
-                                                    try {
-                                                      const response =
-                                                        await fetch(
-                                                          `/api/admin/team/shifts/${shift.id}`,
-                                                          {
-                                                            method: 'DELETE',
-                                                          }
-                                                        );
-
-                                                      if (response.ok) {
-                                                        toast.success(
-                                                          'Shift deleted successfully'
-                                                        );
-                                                        fetchWeeklyShifts(
-                                                          weekOffset
-                                                        );
-                                                        // Update the modal data
-                                                        const updatedShifts =
-                                                          selectedMemberDetail.shifts.filter(
-                                                            (s: any) =>
-                                                              s.id !== shift.id
-                                                          );
-                                                        const newTotalHours =
-                                                          updatedShifts.reduce(
-                                                            (
-                                                              sum: number,
-                                                              s: any
-                                                            ) =>
-                                                              sum +
-                                                              (s.net_hours ||
-                                                                0),
-                                                            0
-                                                          );
-                                                        const newTotalPay =
-                                                          updatedShifts.reduce(
-                                                            (
-                                                              sum: number,
-                                                              s: any
-                                                            ) =>
-                                                              sum +
-                                                              (s.total_pay ||
-                                                                0),
-                                                            0
-                                                          );
-                                                        const newTotalBreaks =
-                                                          updatedShifts.reduce(
-                                                            (
-                                                              sum: number,
-                                                              s: any
-                                                            ) =>
-                                                              sum +
-                                                              (s.total_break_minutes ||
-                                                                0),
-                                                            0
-                                                          );
-
-                                                        setSelectedMemberDetail(
-                                                          {
-                                                            ...selectedMemberDetail,
-                                                            shifts:
-                                                              updatedShifts,
-                                                            totalHours:
-                                                              newTotalHours,
-                                                            totalPay:
-                                                              newTotalPay,
-                                                            totalBreaks:
-                                                              newTotalBreaks,
-                                                          }
-                                                        );
-                                                      } else {
-                                                        toast.error(
-                                                          'Failed to delete shift'
-                                                        );
-                                                      }
-                                                    } catch (error) {
-                                                      toast.error(
-                                                        `${error} Error deleting shift`
-                                                      );
-                                                    }
-                                                  }
-                                                }}
-                                                className="p-1 text-red-600 hover:bg-red-50 rounded"
-                                                title="Delete"
-                                                disabled={
-                                                  shift.status === 'active'
-                                                }
-                                              >
-                                                <Trash2 className="w-4 h-4" />
-                                              </button>
-                                            </>
-                                          )}
-                                        </div>
-                                      </td>
-                                    </tr>
-                                  );
-                                })
+                                          }
+                                        }}
+                                        className="text-red-600 hover:text-red-700"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))
                             )}
                           </tbody>
                         </table>
