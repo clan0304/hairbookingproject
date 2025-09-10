@@ -107,6 +107,8 @@ export default function ClientsPage() {
 
       const method = modalMode === 'edit' ? 'PUT' : 'POST';
 
+      console.log('Saving client:', { url, method, clientData });
+
       const response = await fetch(url, {
         method,
         headers: {
@@ -115,10 +117,18 @@ export default function ClientsPage() {
         body: JSON.stringify(clientData),
       });
 
-      const data = await response.json();
-
+      // Check if response is ok before trying to parse JSON
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to save client');
+        // Try to get error message from response
+        let errorMessage = 'Failed to save client';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // If JSON parsing fails, use status text
+          errorMessage = `Failed to save client: ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
       }
 
       toast.success(
@@ -130,6 +140,7 @@ export default function ClientsPage() {
       setShowClientModal(false);
       fetchClients(); // Refresh the list
     } catch (error: any) {
+      console.error('Error saving client:', error);
       toast.error(error.message || 'Failed to save client');
       throw error; // Re-throw to be handled by the modal
     }
