@@ -217,7 +217,8 @@ export function CalendarGrid({
         .map(Number);
       const startTotalMinutes = startHours * 60 + startMinutes;
 
-      const endTotalMinutes = hours * 60 + minutes + MINUTES_PER_SLOT;
+      // FIX: Use exact drop position without adding MINUTES_PER_SLOT
+      const endTotalMinutes = hours * 60 + minutes;
 
       newDuration = Math.max(MIN_DURATION, endTotalMinutes - startTotalMinutes);
 
@@ -404,8 +405,10 @@ export function CalendarGrid({
             '00:00';
           startTime = originalStartTimeStr;
 
+          // FIX: Use exact drop position without adding MINUTES_PER_SLOT
           const [hours, minutes] = time.split(':').map(Number);
-          const endTotalMinutes = hours * 60 + minutes + MINUTES_PER_SLOT;
+          const endTotalMinutes = hours * 60 + minutes;
+
           const endHours = Math.floor(endTotalMinutes / 60);
           const endMinutes = endTotalMinutes % 60;
           endTime = `${endHours.toString().padStart(2, '0')}:${endMinutes
