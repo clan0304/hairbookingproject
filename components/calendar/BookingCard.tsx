@@ -11,9 +11,10 @@ import type { BookingWithLocalTimes as BookingWithDetails } from '@/types/databa
 interface BookingCardProps {
   booking: BookingWithDetails;
   compact?: boolean;
-  onDragStart?: (booking: BookingWithDetails) => void;
+  onDragStart?: (booking: BookingWithDetails, e: React.DragEvent) => void;
   onDragEnd?: () => void;
   isDragging?: boolean;
+  transparentBg?: boolean; // Added for transparent background support
 }
 
 // Helper function to safely parse time strings
@@ -73,6 +74,7 @@ export function BookingCard({
   onDragStart,
   onDragEnd,
   isDragging = false,
+  transparentBg = false, // Added default value
 }: BookingCardProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0 });
@@ -95,70 +97,32 @@ export function BookingCard({
   };
 
   const textColor = isLightColor(backgroundColor)
-    ? 'text-gray-900'
+    ? 'text-gray-800'
     : 'text-white';
 
-  // Calculate popover position
-  useEffect(() => {
-    if (showDetails && cardRef.current && !isDragging) {
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (cardRef.current && !showDetails) {
       const rect = cardRef.current.getBoundingClientRect();
       const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
 
-      // Default position (right of the card)
-      let left = rect.right + 8;
-      let top = rect.top;
-
-      // Check if popover would go off-screen
+      // Position popover - adjust if it would go off screen
+      let left = rect.right + 10;
       if (left + 320 > viewportWidth) {
-        // Show on left side instead
-        left = rect.left - 328;
+        left = rect.left - 330;
       }
 
-      // If still off-screen (too far left), center it
-      if (left < 8) {
-        left = rect.left;
-      }
-
-      // Adjust vertical position if needed
-      if (top + 400 > viewportHeight) {
-        top = Math.max(8, viewportHeight - 408);
-      }
-
-      setPopoverPosition({ top, left });
+      setPopoverPosition({
+        top: rect.top,
+        left,
+      });
     }
-  }, [showDetails, isDragging]);
-
-  // Close popover when clicking outside
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (
-        popoverRef.current &&
-        !popoverRef.current.contains(event.target as Node) &&
-        cardRef.current &&
-        !cardRef.current.contains(event.target as Node)
-      ) {
-        setShowDetails(false);
-      }
-    }
-
-    if (showDetails) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () =>
-        document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showDetails]);
+    setShowDetails(!showDetails);
+  };
 
   const handleDragStart = (e: React.DragEvent) => {
     if (onDragStart) {
-      onDragStart(booking);
-      // Set drag effect
-      e.dataTransfer.effectAllowed = 'move';
-      // Store booking data in drag event
-      e.dataTransfer.setData('bookingId', booking.id);
-      e.dataTransfer.setData('bookingData', JSON.stringify(booking));
-      // Hide details popover when starting drag
-      setShowDetails(false);
+      onDragStart(booking, e);
     }
   };
 
@@ -168,15 +132,30 @@ export function BookingCard({
     }
   };
 
-  const handleClick = () => {
-    // Don't show details if we're dragging
-    if (!isDragging) {
-      setShowDetails(!showDetails);
-    }
-  };
+  // Close popover when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        popoverRef.current &&
+        !popoverRef.current.contains(event.target as Node) &&
+        cardRef.current &&
+        !cardRef.current.contains(event.target as Node)
+      ) {
+        setShowDetails(false);
+      }
+    };
 
+    if (showDetails) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDetails]);
+
+  // Compact view for week mode
   if (compact) {
-    // Compact view for week mode
     return (
       <>
         <div
@@ -185,11 +164,11 @@ export function BookingCard({
           draggable={true}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
-          className={`rounded px-1 py-0.5 cursor-pointer hover:opacity-90 transition-opacity overflow-hidden ${textColor} ${
+          className={`text-xs px-1.5 py-1 cursor-pointer hover:opacity-90 transition-opacity overflow-hidden h-full ${textColor} ${
             isDragging ? 'opacity-50' : ''
           }`}
           style={{
-            backgroundColor,
+            backgroundColor: transparentBg ? 'transparent' : backgroundColor,
             cursor: isDragging ? 'grabbing' : 'grab',
           }}
         >
@@ -226,11 +205,11 @@ export function BookingCard({
         draggable={true}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
-        className={`rounded-md px-2 py-1.5 cursor-pointer hover:opacity-90 transition-opacity overflow-hidden ${textColor} ${
+        className={`rounded-md px-2 py-1.5 cursor-pointer hover:opacity-90 transition-opacity overflow-hidden h-full ${textColor} ${
           isDragging ? 'opacity-50' : ''
         }`}
         style={{
-          backgroundColor,
+          backgroundColor: transparentBg ? 'transparent' : backgroundColor,
           cursor: isDragging ? 'grabbing' : 'grab',
         }}
       >
