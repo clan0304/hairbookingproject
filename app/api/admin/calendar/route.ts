@@ -2,7 +2,9 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { format, addMinutes } from 'date-fns';
 
+// GET - Fetch bookings for calendar view
 export async function GET(req: Request) {
   try {
     const { userId } = await auth();
@@ -63,8 +65,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    // The VIEW already provides all the data in the format we need
-    // Just need to transform some fields for compatibility
+    // Transform the VIEW data for compatibility
     const transformedBookings =
       bookings?.map((booking) => ({
         // Core booking data
@@ -129,6 +130,194 @@ export async function GET(req: Request) {
     });
   } catch (error) {
     console.error('Error in calendar API:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+// POST - Create new booking
+export async function POST(req: Request) {
+  try {
+    const { userId } = await auth();
+
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check admin role
+    const { data: userData } = await supabaseAdmin
+      .from('users')
+      .select('role')
+      .eq('clerk_id', userId)
+      .single();
+
+    if (userData?.role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const body = await req.json();
+    console.log('Creating booking with data:', body);
+
+    const {
+      shop_id,
+      team_member_id,
+      booking_date,
+      start_time,
+      duration,
+      price,
+      notes,
+      serviceId,
+      clientId,
+      clientName,
+      clientEmail,
+      clientPhone,
+    } = body;
+
+    // Validate required fields
+    if (
+      !shop_id ||
+      !team_member_id ||
+      !booking_date ||
+      !start_time ||
+      !serviceId
+    ) {
+      return NextResponse.json(
+        { error: 'Missing required fields' },
+        { status: 400 }
+      );
+    }
+
+    // Handle client - either use existing or create new
+    let finalClientId = clientId;
+
+    if (!clientId && clientName) {
+      // Create a new client if no ID provided but name is given
+      const nameParts = clientName.trim().split(' ');
+      const firstName = nameParts[0];
+      const lastName = nameParts.slice(1).join(' ');
+
+      const { data: newClient, error: clientError } = await supabaseAdmin
+        .from('clients')
+        .insert({
+          first_name: firstName,
+          last_name: lastName || null,
+          email: clientEmail || null,
+          phone: clientPhone || null,
+          is_authenticated: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (clientError) {
+        console.error('Error creating client:', clientError);
+        return NextResponse.json(
+          { error: 'Failed to create client' },
+          { status: 400 }
+        );
+      }
+
+      finalClientId = newClient.id;
+    }
+
+    if (!finalClientId) {
+      return NextResponse.json(
+        { error: 'Client information is required' },
+        { status: 400 }
+      );
+    }
+
+    // Calculate end time
+    const [hours, minutes] = start_time.split(':').map(Number);
+    const startDateTime = new Date();
+    startDateTime.setHours(hours, minutes, 0, 0);
+    const endDateTime = addMinutes(startDateTime, duration || 60);
+    const end_time = format(endDateTime, 'HH:mm');
+
+    // Generate booking number
+    const bookingNumber = `BK${Date.now().toString(36).toUpperCase()}`;
+
+    // Create timestamps for the booking
+    const bookingDateObj = new Date(booking_date);
+    const starts_at = new Date(
+      bookingDateObj.getFullYear(),
+      bookingDateObj.getMonth(),
+      bookingDateObj.getDate(),
+      hours,
+      minutes
+    ).toISOString();
+
+    const ends_at = new Date(
+      bookingDateObj.getFullYear(),
+      bookingDateObj.getMonth(),
+      bookingDateObj.getDate(),
+      endDateTime.getHours(),
+      endDateTime.getMinutes()
+    ).toISOString();
+
+    // Check for conflicts
+    const { data: conflicts } = await supabaseAdmin
+      .from('bookings')
+      .select('booking_number')
+      .eq('team_member_id', team_member_id)
+      .eq('booking_date', booking_date)
+      .neq('status', 'cancelled')
+      .or(`and(start_time.lt.${end_time},end_time.gt.${start_time})`);
+
+    if (conflicts && conflicts.length > 0) {
+      return NextResponse.json(
+        {
+          error: 'Time slot conflict',
+          conflicts: conflicts.map((c) => c.booking_number),
+        },
+        { status: 400 }
+      );
+    }
+
+    // Create the booking
+    const { data: booking, error: bookingError } = await supabaseAdmin
+      .from('bookings')
+      .insert({
+        booking_number: bookingNumber,
+        client_id: finalClientId,
+        team_member_id,
+        shop_id,
+        service_id: serviceId,
+        variant_id: null, // Can be added later if needed
+        booking_date,
+        start_time,
+        end_time,
+        starts_at,
+        ends_at,
+        duration: duration || 60,
+        price: price || 0,
+        status: 'confirmed',
+        booking_note: notes || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (bookingError) {
+      console.error('Error creating booking:', bookingError);
+      return NextResponse.json(
+        { error: bookingError.message },
+        { status: 400 }
+      );
+    }
+
+    console.log('Booking created successfully:', booking);
+
+    return NextResponse.json({
+      data: booking,
+      message: 'Booking created successfully',
+    });
+  } catch (error) {
+    console.error('Error in POST /api/admin/calendar:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

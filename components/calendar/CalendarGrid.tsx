@@ -24,6 +24,7 @@ interface CalendarGridProps {
   bookings: BookingWithDetails[];
   loading: boolean;
   shopTimezone: string;
+  shopId: string;
   onBookingUpdate?: () => void;
 }
 
@@ -48,7 +49,7 @@ export function CalendarGrid({
   teamMembers,
   bookings,
   loading,
-
+  shopId,
   onBookingUpdate,
 }: CalendarGridProps) {
   const [draggedBooking, setDraggedBooking] =
@@ -573,7 +574,7 @@ export function CalendarGrid({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async (bookingData: any) => {
       try {
-        const response = await fetch('/api/admin/bookings', {
+        const response = await fetch('/api/admin/calendar', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -741,7 +742,7 @@ export function CalendarGrid({
             setShowAddBookingModal(false);
             setNewBookingData(null);
           }}
-          shopId={bookings[0]?.shop_id || ''} // Get shop ID from existing bookings
+          shopId={shopId} // Use the shopId prop
           mode="create"
           teamMember={newBookingData.teamMember}
           date={newBookingData.date}

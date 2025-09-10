@@ -204,6 +204,7 @@ export default function CalendarPage() {
           teamMembers={visibleTeamMembers}
           bookings={bookings}
           loading={loading}
+          shopId={selectedShop}
           shopTimezone={'Australia/Melbourne'} // Use default timezone or get from shop
           onBookingUpdate={handleBookingUpdate} // Pass the update handler
         />
