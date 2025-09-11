@@ -8,11 +8,12 @@ import { Clock } from 'lucide-react';
 import { CalendarGridHeader } from './CalendarGridHeader';
 import { CalendarGridBody } from './CalendarGridBody';
 import { TimeSlotMenu } from './TimeSlotMenu';
-import { BookingModal } from './BookingModal';
+
 import type {
   TeamMember,
   BookingWithLocalTimes as BookingWithDetails,
 } from '@/types/database';
+import { EnhancedBookingModal } from './EnhancedBookingModal';
 
 export type ViewMode = 'day' | 'week';
 export type DragMode = 'move' | 'resize-top' | 'resize-bottom';
@@ -739,13 +740,13 @@ export function CalendarGrid({
 
       {/* Add Booking Modal */}
       {showAddBookingModal && newBookingData && (
-        <BookingModal
+        <EnhancedBookingModal
           isOpen={showAddBookingModal}
           onClose={() => {
             setShowAddBookingModal(false);
             setNewBookingData(null);
           }}
-          shopId={shopId} // Use the shopId prop
+          shopId={shopId}
           mode="create"
           teamMember={newBookingData.teamMember}
           date={newBookingData.date}
