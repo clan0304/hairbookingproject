@@ -316,9 +316,79 @@ export default function StaffManagementPage() {
     }
   };
 
+  // ADD THIS: Handle save shift (for edit functionality)
+  const handleSaveShift = async () => {
+    if (!editingShiftId || !editedShift) return;
+
+    try {
+      setProcessing(true);
+
+      const response = await fetch(`/api/admin/team/shifts/${editingShiftId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shift_start: editedShift.shift_start,
+          shift_end: editedShift.shift_end,
+          notes: editedShift.notes,
+          date: editedShift.date,
+          total_break_minutes: editedShift.total_break_minutes || 0,
+        }),
+      });
+
+      if (response.ok) {
+        toast.success('Shift updated successfully');
+
+        // Refresh data
+        fetchWeeklyShifts(weekOffset);
+        fetchActiveShifts();
+        fetchTodayShifts();
+
+        // Update the selectedMemberDetail shifts if editing within modal
+        if (selectedMemberDetail) {
+          const updatedShifts = selectedMemberDetail.shifts.map((s: any) =>
+            s.id === editingShiftId ? editedShift : s
+          );
+          setSelectedMemberDetail({
+            ...selectedMemberDetail,
+            shifts: updatedShifts,
+          });
+        }
+
+        // Reset editing state
+        setEditingShiftId(null);
+        setEditedShift(null);
+      } else {
+        const error = await response.json();
+        toast.error(error.message || 'Failed to update shift');
+      }
+    } catch (error) {
+      console.error('Error updating shift:', error);
+      toast.error('An error occurred while updating');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   // Format time helper
   const formatTime = (dateString: string) => {
     return format(parseISO(dateString), 'h:mm a');
+  };
+
+  // ADD THIS: Helper function to format time for input fields
+  const formatTimeForInput = (isoString: string | null) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  };
+
+  // ADD THIS: Helper function to update time while preserving date
+  const updateTimeInShift = (shift: any, field: string, timeValue: string) => {
+    const [hours, minutes] = timeValue.split(':');
+    const dateObj = new Date(shift[field] || shift.date);
+    dateObj.setHours(parseInt(hours), parseInt(minutes));
+    return dateObj.toISOString();
   };
 
   // Get week date range
@@ -498,7 +568,10 @@ export default function StaffManagementPage() {
                       className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center"
                     >
                       {processing ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Processing...
+                        </>
                       ) : (
                         <>
                           <Play className="w-4 h-4 mr-2" />
@@ -509,44 +582,45 @@ export default function StaffManagementPage() {
                   </div>
                 </div>
 
-                {/* Currently Working */}
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">
-                    Currently Working
-                  </h3>
+                {/* Active Shifts Section */}
+                <div className="bg-white rounded-lg">
+                  <h3 className="text-lg font-semibold mb-4">Active Shifts</h3>
                   {activeShifts.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500">
+                    <p className="text-gray-500 text-center py-8">
                       No active shifts at the moment
-                    </div>
+                    </p>
                   ) : (
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                       {activeShifts.map((shift) => {
                         const onBreak = isOnBreak(shift);
+
                         return (
                           <div
                             key={shift.id}
-                            className="bg-white border border-gray-200 rounded-lg p-4"
+                            className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
                           >
-                            <div className="flex justify-between items-start">
+                            <div className="flex items-center justify-between">
                               <div className="flex-1">
-                                <div className="flex items-center mb-2">
-                                  <h4 className="font-semibold text-gray-900">
-                                    {shift.team_member.first_name}{' '}
-                                    {shift.team_member.last_name}
-                                  </h4>
-                                  {onBreak && (
-                                    <span className="ml-2 px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full flex items-center">
-                                      <Coffee className="w-3 h-3 mr-1" />
-                                      On Break
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                                    <span className="text-purple-600 font-semibold text-sm">
+                                      {shift.team_member.first_name[0]}
+                                      {shift.team_member.last_name[0]}
                                     </span>
-                                  )}
+                                  </div>
+                                  <div>
+                                    <p className="font-medium text-gray-900">
+                                      {shift.team_member.first_name}{' '}
+                                      {shift.team_member.last_name}
+                                    </p>
+                                    <p className="text-sm text-gray-500">
+                                      Started: {formatTime(shift.shift_start)}
+                                    </p>
+                                  </div>
                                 </div>
-                                <div className="text-sm text-gray-600 space-y-1">
-                                  <p>
-                                    Started: {formatTime(shift.shift_start)}
-                                  </p>
-                                  <p>
-                                    Hours worked: {calculateLiveHours(shift)}
+                                <div className="mt-3 flex items-center gap-4 text-sm">
+                                  <p className="text-gray-600">
+                                    Hours: {calculateLiveHours(shift)}
                                   </p>
                                   <p
                                     className={
@@ -612,7 +686,7 @@ export default function StaffManagementPage() {
                     >
                       <ChevronLeft className="w-5 h-5" />
                     </button>
-                    <h3 className="text-lg font-semibold">
+                    <h3 className="text-lg font-medium">
                       {getWeekDateRange(weekOffset).formatted}
                     </h3>
                     <button
@@ -623,50 +697,42 @@ export default function StaffManagementPage() {
                       <ChevronRight className="w-5 h-5" />
                     </button>
                   </div>
+                  {weekOffset !== 0 && (
+                    <button
+                      onClick={() => setWeekOffset(0)}
+                      className="text-sm text-purple-600 hover:text-purple-700 font-medium"
+                    >
+                      Back to current week
+                    </button>
+                  )}
                 </div>
 
-                {/* Summary Table */}
-                <div className="bg-white rounded-lg overflow-hidden border">
+                {/* Weekly Summary Table */}
+                <div className="bg-white rounded-lg overflow-hidden">
                   <table className="w-full">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="text-left py-4 px-6 font-medium text-gray-700">
-                          Employee
+                        <th className="text-left py-3 px-6 font-medium text-gray-700">
+                          Team Member
                         </th>
-                        <th className="text-left py-4 px-6 font-medium text-gray-700">
+                        <th className="text-left py-3 px-6 font-medium text-gray-700">
                           Total Hours
                         </th>
-                        <th className="text-left py-4 px-6 font-medium text-gray-700">
+                        <th className="text-left py-3 px-6 font-medium text-gray-700">
                           Total Pay
                         </th>
-                        <th className="text-left py-4 px-6 font-medium text-gray-700">
+                        <th className="text-left py-3 px-6 font-medium text-gray-700">
                           Shifts
                         </th>
-                        <th className="text-center py-4 px-6 font-medium text-gray-700">
+                        <th className="text-center py-3 px-6 font-medium text-gray-700">
                           Actions
                         </th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-gray-200">
                       {(() => {
-                        // weeklyShifts already contains only completed shifts (filtered in fetchWeeklyShifts)
-
-                        // Check if there are no completed shifts
-                        if (weeklyShifts.length === 0) {
-                          return (
-                            <tr>
-                              <td
-                                colSpan={5}
-                                className="text-center py-8 text-gray-500"
-                              >
-                                No completed shifts for this week
-                              </td>
-                            </tr>
-                          );
-                        }
-
-                        // Group completed shifts by team member
-                        const shiftsByMember = weeklyShifts.reduce(
+                        // Group shifts by team member
+                        const memberGroups = weeklyShifts.reduce(
                           (acc: any, shift) => {
                             const memberId = shift.team_member_id;
                             if (!acc[memberId]) {
@@ -676,67 +742,59 @@ export default function StaffManagementPage() {
                                 totalHours: 0,
                                 totalPay: 0,
                                 totalBreaks: 0,
-                                completedCount: 0,
                               };
                             }
                             acc[memberId].shifts.push(shift);
-
-                            // Calculate totals for completed shifts only
                             acc[memberId].totalHours += shift.net_hours || 0;
                             acc[memberId].totalPay += shift.total_pay || 0;
-                            acc[memberId].completedCount++;
                             acc[memberId].totalBreaks +=
                               shift.total_break_minutes || 0;
-
                             return acc;
                           },
                           {}
                         );
 
-                        return Object.entries(shiftsByMember).map(
-                          ([memberId, data]: [string, any]) => (
-                            <tr
-                              key={memberId}
-                              className="border-t hover:bg-gray-50 cursor-pointer"
-                              onClick={() => setSelectedMemberDetail(data)}
-                            >
-                              <td className="py-4 px-6">
-                                <div className="font-medium text-gray-900">
-                                  {data.member.first_name}{' '}
-                                  {data.member.last_name}
-                                </div>
-                                <div className="text-sm text-gray-500">
-                                  {data.member.email}
-                                </div>
-                              </td>
-                              <td className="py-4 px-6">
-                                <div className="text-gray-900">
-                                  {formatHoursToHHMM(data.totalHours)}
-                                </div>
-                              </td>
-                              <td className="py-4 px-6">
-                                <div className="font-medium text-green-600">
-                                  ${data.totalPay.toFixed(2)}
-                                </div>
-                              </td>
-                              <td className="py-4 px-6">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-gray-900">
-                                    {data.shifts.length}
-                                  </span>
-                                  <span className="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded-full">
-                                    completed
-                                  </span>
-                                </div>
-                              </td>
-                              <td className="py-4 px-6 text-center">
-                                <button className="text-purple-600 hover:text-purple-700 font-medium text-sm">
-                                  View Details
-                                </button>
-                              </td>
-                            </tr>
-                          )
-                        );
+                        return Object.values(memberGroups).map((data: any) => (
+                          <tr
+                            key={data.member.id}
+                            className="hover:bg-gray-50 cursor-pointer"
+                            onClick={() => setSelectedMemberDetail(data)}
+                          >
+                            <td className="py-4 px-6">
+                              <div className="font-medium text-gray-900">
+                                {data.member.first_name} {data.member.last_name}
+                              </div>
+                              <div className="text-sm text-gray-500">
+                                {data.member.email}
+                              </div>
+                            </td>
+                            <td className="py-4 px-6">
+                              <div className="text-gray-900">
+                                {formatHoursToHHMM(data.totalHours)}
+                              </div>
+                            </td>
+                            <td className="py-4 px-6">
+                              <div className="font-medium text-green-600">
+                                ${data.totalPay.toFixed(2)}
+                              </div>
+                            </td>
+                            <td className="py-4 px-6">
+                              <div className="flex items-center gap-2">
+                                <span className="text-gray-900">
+                                  {data.shifts.length}
+                                </span>
+                                <span className="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded-full">
+                                  completed
+                                </span>
+                              </div>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <button className="text-purple-600 hover:text-purple-700 font-medium text-sm">
+                                View Details
+                              </button>
+                            </td>
+                          </tr>
+                        ));
                       })()}
                     </tbody>
                   </table>
@@ -801,10 +859,10 @@ export default function StaffManagementPage() {
                         </div>
                       </div>
 
-                      {/* Detailed Shifts Table with Edit/Delete */}
-                      <div className="overflow-y-auto max-h-[400px]">
+                      {/* Shifts Table */}
+                      <div className="overflow-x-auto">
                         <table className="w-full">
-                          <thead className="bg-gray-50 sticky top-0">
+                          <thead className="bg-gray-50">
                             <tr>
                               <th className="text-left py-3 px-4 font-medium text-gray-700">
                                 Date
@@ -835,7 +893,7 @@ export default function StaffManagementPage() {
                               </th>
                             </tr>
                           </thead>
-                          <tbody>
+                          <tbody className="divide-y divide-gray-200">
                             {selectedMemberDetail.shifts.length === 0 ? (
                               <tr>
                                 <td
@@ -846,91 +904,226 @@ export default function StaffManagementPage() {
                                 </td>
                               </tr>
                             ) : (
-                              selectedMemberDetail.shifts.map((shift: any) => (
-                                <tr key={shift.id} className="border-t">
-                                  <td className="py-3 px-4">
-                                    {format(parseISO(shift.date), 'MMM d')}
-                                  </td>
-                                  <td className="py-3 px-4">
-                                    {formatTime(shift.shift_start)}
-                                  </td>
-                                  <td className="py-3 px-4">
-                                    {shift.shift_end
-                                      ? formatTime(shift.shift_end)
-                                      : '-'}
-                                  </td>
-                                  <td className="py-3 px-4">
-                                    {formatHoursToHHMM(shift.net_hours || 0)}
-                                  </td>
-                                  <td className="py-3 px-4">
-                                    {shift.total_break_minutes || 0} mins
-                                  </td>
-                                  <td className="py-3 px-4">
-                                    ${shift.hourly_rate || 0}/hr
-                                  </td>
-                                  <td className="py-3 px-4 font-medium text-green-600">
-                                    ${(shift.total_pay || 0).toFixed(2)}
-                                  </td>
-                                  <td className="py-3 px-4">
-                                    <span
-                                      className={`px-2 py-1 text-xs rounded-full ${
-                                        shift.status === 'completed'
-                                          ? 'bg-gray-100 text-gray-800'
-                                          : 'bg-blue-100 text-blue-800'
-                                      }`}
-                                    >
-                                      {shift.status}
-                                    </span>
-                                  </td>
-                                  <td className="py-3 px-4">
-                                    <div className="flex justify-center gap-2">
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          // Add edit functionality here
-                                          setEditingShiftId(shift.id);
-                                          setEditedShift(shift);
-                                        }}
-                                        className="text-blue-600 hover:text-blue-700"
-                                      >
-                                        <Edit2 className="w-4 h-4" />
-                                      </button>
-                                      <button
-                                        onClick={async (e) => {
-                                          e.stopPropagation();
-                                          if (
-                                            confirm('Delete this shift record?')
-                                          ) {
-                                            try {
-                                              const response = await fetch(
-                                                `/api/admin/team/shifts/${shift.id}`,
-                                                { method: 'DELETE' }
-                                              );
-                                              if (response.ok) {
-                                                toast.success(
-                                                  'Shift deleted successfully'
-                                                );
-                                                // Refresh and close modal
-                                                fetchWeeklyShifts(weekOffset);
-                                                fetchActiveShifts();
-                                                fetchTodayShifts();
-                                                setSelectedMemberDetail(null);
-                                              }
-                                            } catch (error) {
-                                              toast.error(
-                                                'Failed to delete shift'
-                                              );
-                                            }
+                              selectedMemberDetail.shifts.map((shift: any) => {
+                                const isEditing = editingShiftId === shift.id;
+
+                                return (
+                                  <tr
+                                    key={shift.id}
+                                    className={
+                                      isEditing ? 'bg-blue-50' : 'border-t'
+                                    }
+                                  >
+                                    <td className="py-3 px-4">
+                                      {isEditing ? (
+                                        <input
+                                          type="date"
+                                          value={editedShift?.date || ''}
+                                          onChange={(e) =>
+                                            setEditedShift({
+                                              ...editedShift,
+                                              date: e.target.value,
+                                            })
                                           }
-                                        }}
-                                        className="text-red-600 hover:text-red-700"
+                                          className="px-2 py-1 border rounded"
+                                        />
+                                      ) : (
+                                        format(parseISO(shift.date), 'MMM d')
+                                      )}
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      {isEditing ? (
+                                        <input
+                                          type="time"
+                                          value={formatTimeForInput(
+                                            editedShift?.shift_start
+                                          )}
+                                          onChange={(e) =>
+                                            setEditedShift({
+                                              ...editedShift,
+                                              shift_start: updateTimeInShift(
+                                                editedShift,
+                                                'shift_start',
+                                                e.target.value
+                                              ),
+                                            })
+                                          }
+                                          className="px-2 py-1 border rounded"
+                                        />
+                                      ) : (
+                                        formatTime(shift.shift_start)
+                                      )}
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      {isEditing ? (
+                                        <input
+                                          type="time"
+                                          value={formatTimeForInput(
+                                            editedShift?.shift_end
+                                          )}
+                                          onChange={(e) =>
+                                            setEditedShift({
+                                              ...editedShift,
+                                              shift_end: updateTimeInShift(
+                                                editedShift,
+                                                'shift_end',
+                                                e.target.value
+                                              ),
+                                            })
+                                          }
+                                          className="px-2 py-1 border rounded"
+                                        />
+                                      ) : shift.shift_end ? (
+                                        formatTime(shift.shift_end)
+                                      ) : (
+                                        '-'
+                                      )}
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      {formatHoursToHHMM(shift.net_hours || 0)}
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      {isEditing ? (
+                                        <input
+                                          type="number"
+                                          value={
+                                            editedShift?.total_break_minutes ||
+                                            0
+                                          }
+                                          onChange={(e) =>
+                                            setEditedShift({
+                                              ...editedShift,
+                                              total_break_minutes:
+                                                parseInt(e.target.value) || 0,
+                                            })
+                                          }
+                                          className="px-2 py-1 border rounded w-20"
+                                          min="0"
+                                        />
+                                      ) : (
+                                        `${shift.total_break_minutes || 0} mins`
+                                      )}
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      ${shift.hourly_rate || 0}/hr
+                                    </td>
+                                    <td className="py-3 px-4 font-medium text-green-600">
+                                      ${(shift.total_pay || 0).toFixed(2)}
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      <span
+                                        className={`px-2 py-1 text-xs rounded-full ${
+                                          shift.status === 'completed'
+                                            ? 'bg-gray-100 text-gray-800'
+                                            : 'bg-blue-100 text-blue-800'
+                                        }`}
                                       >
-                                        <Trash2 className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))
+                                        {shift.status}
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      <div className="flex justify-center gap-2">
+                                        {isEditing ? (
+                                          <>
+                                            <button
+                                              onClick={handleSaveShift}
+                                              disabled={processing}
+                                              className="text-green-600 hover:text-green-700 disabled:opacity-50"
+                                              title="Save"
+                                            >
+                                              ✓
+                                            </button>
+                                            <button
+                                              onClick={() => {
+                                                setEditingShiftId(null);
+                                                setEditedShift(null);
+                                              }}
+                                              className="text-red-600 hover:text-red-700"
+                                              title="Cancel"
+                                            >
+                                              ✗
+                                            </button>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (shift.status === 'paid') {
+                                                  toast.error(
+                                                    'Cannot edit paid shifts'
+                                                  );
+                                                  return;
+                                                }
+                                                setEditingShiftId(shift.id);
+                                                setEditedShift(shift);
+                                              }}
+                                              className={
+                                                shift.status === 'paid'
+                                                  ? 'text-gray-400 cursor-not-allowed'
+                                                  : 'text-blue-600 hover:text-blue-700'
+                                              }
+                                              disabled={shift.status === 'paid'}
+                                            >
+                                              <Edit2 className="w-4 h-4" />
+                                            </button>
+                                            <button
+                                              onClick={async (e) => {
+                                                e.stopPropagation();
+                                                if (shift.status === 'paid') {
+                                                  toast.error(
+                                                    'Cannot delete paid shifts'
+                                                  );
+                                                  return;
+                                                }
+                                                if (
+                                                  confirm(
+                                                    'Delete this shift record?'
+                                                  )
+                                                ) {
+                                                  try {
+                                                    const response =
+                                                      await fetch(
+                                                        `/api/admin/team/shifts/${shift.id}`,
+                                                        { method: 'DELETE' }
+                                                      );
+                                                    if (response.ok) {
+                                                      toast.success(
+                                                        'Shift deleted successfully'
+                                                      );
+                                                      // Refresh and close modal
+                                                      fetchWeeklyShifts(
+                                                        weekOffset
+                                                      );
+                                                      fetchActiveShifts();
+                                                      fetchTodayShifts();
+                                                      setSelectedMemberDetail(
+                                                        null
+                                                      );
+                                                    }
+                                                  } catch (error) {
+                                                    toast.error(
+                                                      'Failed to delete shift'
+                                                    );
+                                                  }
+                                                }
+                                              }}
+                                              className={
+                                                shift.status === 'paid'
+                                                  ? 'text-gray-400 cursor-not-allowed'
+                                                  : 'text-red-600 hover:text-red-700'
+                                              }
+                                              disabled={shift.status === 'paid'}
+                                            >
+                                              <Trash2 className="w-4 h-4" />
+                                            </button>
+                                          </>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })
                             )}
                           </tbody>
                         </table>
