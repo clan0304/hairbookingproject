@@ -80,6 +80,7 @@ export function BookingCard({
   const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0 });
   const cardRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const hideTimerRef = useRef<number | null>(null);
 
   // Parse times safely
   const startTime = parseTimeString(booking.start_time);
@@ -100,24 +101,58 @@ export function BookingCard({
     ? 'text-gray-800'
     : 'text-white';
 
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (cardRef.current && !showDetails) {
-      const rect = cardRef.current.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
+  const positionPopoverFromCard = () => {
+    if (!cardRef.current) return;
+    const rect = cardRef.current.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
 
-      // Position popover - adjust if it would go off screen
-      let left = rect.right + 10;
-      if (left + 320 > viewportWidth) {
-        left = rect.left - 330;
-      }
-
-      setPopoverPosition({
-        top: rect.top,
-        left,
-      });
+    let left = rect.right + 10;
+    if (left + 320 > viewportWidth) {
+      left = rect.left - 330;
     }
-    setShowDetails(!showDetails);
+
+    setPopoverPosition({
+      top: rect.top,
+      left,
+    });
+  };
+
+  const cancelHide = () => {
+    if (hideTimerRef.current !== null) {
+      window.clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  };
+
+  const scheduleHide = () => {
+    cancelHide();
+    hideTimerRef.current = window.setTimeout(() => {
+      setShowDetails(false);
+    }, 150);
+  };
+
+  const handleMouseEnter = () => {
+    cancelHide();
+    positionPopoverFromCard();
+    setShowDetails(true);
+  };
+
+  const handleMouseLeave = () => {
+    scheduleHide();
+  };
+
+  const handlePopoverMouseEnter = () => {
+    cancelHide();
+    setShowDetails(true);
+  };
+
+  const handlePopoverMouseLeave = () => {
+    scheduleHide();
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    // (kept for compatibility, but no longer used)
+    e.stopPropagation();
   };
 
   const handleDragStart = (e: React.DragEvent) => {
@@ -151,6 +186,7 @@ export function BookingCard({
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
+      cancelHide();
     };
   }, [showDetails]);
 
@@ -164,6 +200,8 @@ export function BookingCard({
           draggable={true}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
           className={`text-xs px-1.5 py-1 cursor-pointer hover:opacity-90 transition-opacity overflow-hidden h-full ${textColor} ${
             isDragging ? 'opacity-50' : ''
           }`}
@@ -188,6 +226,8 @@ export function BookingCard({
               top: `${popoverPosition.top}px`,
               left: `${popoverPosition.left}px`,
             }}
+            onMouseEnter={handlePopoverMouseEnter}
+            onMouseLeave={handlePopoverMouseLeave}
           >
             <BookingDetails booking={booking} />
           </div>
@@ -205,6 +245,8 @@ export function BookingCard({
         draggable={true}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
         className={`rounded-md px-2 py-1.5 cursor-pointer hover:opacity-90 transition-opacity overflow-hidden h-full ${textColor} ${
           isDragging ? 'opacity-50' : ''
         }`}
@@ -235,6 +277,8 @@ export function BookingCard({
             top: `${popoverPosition.top}px`,
             left: `${popoverPosition.left}px`,
           }}
+          onMouseEnter={handlePopoverMouseEnter}
+          onMouseLeave={handlePopoverMouseLeave}
         >
           <BookingDetails booking={booking} />
         </div>
